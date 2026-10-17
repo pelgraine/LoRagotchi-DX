@@ -97,11 +97,33 @@ LoRaFish buzzer outputs are assigned per board:
 
 ### LilyGo T-Watch S3
 
-The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle, and the Cardputer's colour tank scenery (water, light, reef, sand and seaweed). The fish wanders around the tank, gliding to new spots, hovering with a few bubbles and now and then darting. The other screens are centred.
+This section covers the T-Watch S3 builds: how the watch differs from the other boards, how to control it by touch, and what every screen and sub-menu does. For the pet itself (growth, meals, hygiene, sleep, DX visits and breeding), see [Getting Started](Getting_Started.md); the rules are the same on every board.
 
-The T-Watch S3 has no GNSS receiver, so the GNSS page and the GNSS monitor option are left out. To include a position in adverts, set it in the MeshCore app over Bluetooth and turn on location sharing in adverts there.
+#### What is different on the watch
 
-The watch uses directional taps and swipes:
+- **Touch controls.** The watch has a touch screen and a single side button, so it uses taps and swipes instead of the click, double-click and long-press of the other boards (see Controls below).
+- **Full-screen colour aquarium.** The aquarium fills the screen with the Cardputer's colour tank scenery (water, light, reef, sand and seaweed). The fish wanders around the tank: it glides to new spots, hovers with a few bubbles, and now and then darts.
+- **Other screens are centred**, with their usual 128-pixel-wide layout scaled up to the width of the 240x240 screen.
+- **No buzzer**, so the Sound menu is hidden.
+- **No GNSS receiver**, so the GNSS page and the GNSS monitor option are left out. To put a position in your adverts, see Position in adverts below.
+
+#### Builds
+
+| Watch | Build environment | Notes |
+| --- | --- | --- |
+| T-Watch S3 (SX1262) | `TWatch_S3_LoRaFish_companion_ble` | MeshCore BLE companion for the phone app. 80 MHz, aquarium at about 30 frames a second. |
+| T-Watch S3 (SX1262) | `TWatch_S3_LoRaFish_standalone` | No Bluetooth, for longer battery life. Drops the CPU to 40 MHz once booted, pauses briefly while the screen is off, and keeps the aquarium at 10 frames a second. |
+| T-Watch S3 (SX1280, 2.4 GHz) | `TWatch_S3_1280_LoRaFish_companion_ble` | MeshCore BLE companion. 80 MHz, aquarium at about 30 frames a second. Starts on 2400.5 MHz / 406.25 kHz / SF11 / CR8. |
+
+Build and flash over USB with, for example:
+
+```bash
+pio run -e TWatch_S3_LoRaFish_companion_ble -t upload
+```
+
+Without a phone app, the no-Bluetooth build takes its time from the watch's clock chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build). Both SX1262 builds share the same stored data, so you can switch between them without losing your fish, contacts or settings.
+
+#### Controls
 
 | Gesture | Main screens (Aquarium to RF Monitor) | Lists (DX Visit, Options, Display) | Setting screens |
 | --- | --- | --- | --- |
@@ -109,19 +131,62 @@ The watch uses directional taps and swipes:
 | Tap the right half | Next screen | Next item | Change the value forward |
 | Tap the left half | Previous screen | Previous item | Change the value backward |
 | Swipe left / right | Next / previous screen | Next / previous screen | - |
-| Swipe down / up | - | Next / previous item | Next / previous field |
-| Hold a finger still for about a second | Long-press action (for example, clean the tank) | Long-press action (open the item, send or recall a DX visit) | Long-press action |
-| Short press of the side button | Next (and wakes the screen) | Next item | Change the value forward |
+| Swipe down / up | - | Next / previous item | Next / previous row |
+| Hold a finger still for about a second | The screen's action (for example, clean the tank) | Open the item, or send or recall a DX visit | The screen's action (see each screen below) |
+| Short press of the side button | Next screen (and wakes the screen) | Next item | Change the value forward |
 
-The on-screen hints (CLICK, LONG, 2X) describe the single-button controls used on other boards. Taps are ignored while the screen is off; press the side button to wake it. Holding the side button for 6 seconds is a hardware power-off.
+- **Changing a setting:** on a setting screen with several rows (for example Schedule & time), swipe down or up to select the row you want, then tap the right half to increase the value or the left half to decrease it.
+- **Waking the watch:** taps are ignored while the screen is off, so a sleeve cannot wake it. Press the side button to wake it.
+- **Power:** hold the side button for 2 seconds to turn the watch on, and for 6 seconds to turn it off. When the battery runs low (about 3.1 V) the watch switches itself off, unless it is charging.
+- **Hints on screen:** the footer of each screen except the aquarium shows "<tap back" and "tap forward>". Most other hints on the screens (CLICK, LONG, 2X) are shared with the single-button boards. On the watch, read CLICK as a tap on the right half and LONG as a hold. 2X usually means a tap on the top area, except on Schedule & time and Screen timeout, where "2X: NEXT" means a swipe down to the next row.
+- **Rescue mode:** holding a finger on the screen during the first 8 seconds after start-up opens MeshCore's serial rescue mode, the same as a long press on the other boards.
 
-There are two builds:
+#### Main screens
 
-- `TWatch_S3_LoRaFish_companion_ble` is a normal MeshCore BLE companion, running at 80 MHz, with the aquarium at about 30 frames a second.
-- `TWatch_S3_LoRaFish_standalone` has no Bluetooth, for longer battery life. It drops the CPU to 40 MHz once booted, pauses the main loop briefly on each pass while the screen is off, and keeps the aquarium at 10 frames a second. Without a phone app, the clock comes from the watch's RTC chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build).
-- `TWatch_S3_1280_LoRaFish_companion_ble` is the BLE companion for the 2.4 GHz (SX1280) watch, running at 80 MHz, with the aquarium at about 30 frames a second. It boots on 2400.5 MHz / 406.25 kHz / SF11 / CR8.
+Tap the right half or swipe left to move through the main screens in this order:
 
-The hardware support (power, display, touch and side button) is ported from the T-Watch edition of [Meck](https://github.com/pelgraine/Meck) by pelgraine.
+1. **Aquarium.** Your fish in its tank. The header shows the node name, battery and time; the footer shows the fish's stage, the number of packets heard (PKT) and unread messages (UNR). Pop-ups appear when something happens on the mesh: "* MESSAGE *" for a received message, "* SENT *" for an acknowledged send, "* HELLO! *" for a new contact, and "* EVOLVED! *" when the fish grows. **Hold** to clean the tank when there is waste in it.
+   - *Egg:* a new fish starts as an egg, with a grey "HATCHING IN m:ss" countdown above the footer. It hatches after 5 minutes.
+   - *Sleeping:* during the sleep hours set in Schedule & time, the fish sleeps and the footer reads "Sleeping".
+   - *Visitor:* a fish visiting from another LoRaGotchi DX node swims alongside yours, with its name shown.
+   - *Memorial:* after 7 days the fish reaches the end of its life. Use Options, Reset pet to start again, or wait for a bred egg to hatch.
+2. **Stats.** Age, happiness, generation (G1, G2 and so on), mesh events (RF), messages (Msg), acknowledgements (ACK), and whether a phone is connected (BLE ON or OFF).
+3. **Clock.** Local time and date, using the UTC offset from Schedule & time. The header shows PHONE while the app is connected and MESH otherwise. The bottom line reads "RTC + LOCAL OFFSET" once the clock has been set, or "build-time fallback" if it has not.
+4. **Phone pairing.** The Bluetooth PIN for pairing with the MeshCore app (123456 by default). The no-Bluetooth build has nothing to pair, so it shows "No PIN configured".
+5. **DX Visit.** Send your fish to visit another LoRaGotchi DX node. Tap the right or left half, or swipe down or up, to choose a contact; **hold** to send the fish. While it is away the screen reads "FISH AWAY"; **hold** again to call it home. Other messages: "DELIVERING...", "CALLING...", "NO REPLY - RETRY" and "NO CONTACTS". A sleeping fish cannot travel. Tap the top area to go to Options.
+6. **Options.** The settings menu (see below). Swipe down or up, or tap, to move the highlight; **hold** to open the highlighted item.
+7. **RF Monitor.** Signal strength (RSSI) and signal-to-noise ratio (SNR) of the last packet heard, a graph of recent signal strength, the battery level, and the time since the last packet.
+
+#### Options
+
+| Item | What it does |
+| --- | --- |
+| Display | Opens the Display menu (below). |
+| Reset pet | **Hold** to start a new egg. This resets the pet's progress and generation but keeps your display and schedule settings. You then choose the new fish's colours. |
+| RF monitor | Opens the RF Monitor screen. |
+| Schedule & time | Three rows: **Sleep** and **Wake** set the hours of the fish's nightly sleep (set them the same to keep it awake all day), and **Offset** sets your time zone as an offset from UTC, in 15-minute steps. Swipe down or up to pick a row, then tap right to increase or left to decrease. There is no automatic daylight saving: change the offset when your clocks change. |
+| Guess game | Five rounds of higher or lower. Tap to switch between HIGHER and LOWER, then **hold** to guess whether the next number will be higher or lower. Each correct guess adds one happiness point. After five rounds, **hold** to play again. |
+| Breed with visitor | Only appears when your fish and a visiting fish are both Adult or Elder and no egg is already waiting. **Hold** to store an egg whose colours mix both parents. When your fish reaches the end of its life, the egg waits beside the gravestone and hatches 5 minutes later as the next generation. |
+
+#### Display menu
+
+Swipe down or up, or tap, to move the highlight; **hold** to open the highlighted item. On each of these screens, tap the top area to go back; holding also goes back, except on Fish color.
+
+| Item | What it does |
+| --- | --- |
+| Screen timeout | Three rows: **Fish Awake** and **Fish Asleep** set how long the screen stays on (15s, 30s, 1m, 2m, 3m or Always) while the fish is awake or asleep. **Always-On-Dim** (15s, 30s or 60s) sets how soon an always-on screen dims when you are not using it. Swipe down or up to pick a row, then tap right or left to change it. |
+| Brightness | 25%, 50%, 75% or 100%. |
+| Firmware theme | Midnight, Paper, Lagoon or Sunset. |
+| Fish color | The colour picker for the fish's Scales, Body / Border and Eyes: tap right or left to change the colour, and **hold** to move to the next part (or swipe down or up to move between parts). The colours are Coral, Tangerine, Gold, Mint, Lagoon, Orchid and Mono. When you start a new fish this screen appears on its own as "NEW FISH": tap the top area when you are happy with the colours. |
+| Game rendering | **Smooth** or **Simulation**: how often the aquarium is redrawn. Simulation redraws less often. |
+
+#### Position in adverts
+
+The watch has no GNSS receiver, but it can still share a position. On a BLE build, set your position in the MeshCore app and turn on location sharing in adverts there. The watch saves the position, keeps it after a reboot, and includes it in its adverts.
+
+#### Credits
+
+The hardware support (power, display, touch, side button and the SX1280 radio) is ported from the T-Watch edition of [Meck](https://github.com/pelgraine/Meck) by pelgraine.
 
 The project tree also retains the wider upstream MeshCore targets and infrastructure from which LoRaGotchi is derived.
 
