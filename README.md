@@ -97,13 +97,15 @@ LoRaFish buzzer outputs are assigned per board:
 
 ### LilyGo T-Watch S3
 
-The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle, and the Cardputer's colour tank scenery (water, light, reef, sand and seaweed); the other screens are centred.
+The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle, and the Cardputer's colour tank scenery (water, light, reef, sand and seaweed). The fish wanders around the tank, gliding to new spots, hovering with a few bubbles and now and then darting. The other screens are centred.
+
+The T-Watch S3 has no GNSS receiver, so the GNSS page and the GNSS monitor option are left out. To include a position in adverts, set it in the MeshCore app over Bluetooth and turn on location sharing in adverts there.
 
 The watch uses directional taps and swipes:
 
-| Gesture | Main screens (Aquarium to GNSS) | Lists (DX Visit, Options, Display) | Setting screens |
+| Gesture | Main screens (Aquarium to RF Monitor) | Lists (DX Visit, Options, Display) | Setting screens |
 | --- | --- | --- | --- |
-| Tap the top area (above the header, or the header itself) | Back: DX Visit and GNSS go to Options, the others go to the Aquarium | Back to the previous screen | Back to the parent menu (on the new-fish colour screen: confirm the fish) |
+| Tap the top area (above the header, or the header itself) | Back: DX Visit goes to Options, the others go to the Aquarium | Back to the previous screen | Back to the parent menu (on the new-fish colour screen: confirm the fish) |
 | Tap the right half | Next screen | Next item | Change the value forward |
 | Tap the left half | Previous screen | Previous item | Change the value backward |
 | Swipe left / right | Next / previous screen | Next / previous screen | - |

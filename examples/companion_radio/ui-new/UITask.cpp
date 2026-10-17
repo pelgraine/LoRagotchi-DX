@@ -90,7 +90,13 @@ static bool loRaFishSimulationMode = false;
 static uint8_t loRaFishTimeField = 0;
 static uint8_t loRaFishTimeoutField = 0;
 static uint8_t loRaFishSoundField = 0;
+#if defined(LORAFISH_NO_GNSS_PAGE)
+// LilyGo T-Watch S3: no GNSS receiver, so the GNSS page (7, the last main
+// page) and the "GNSS monitor" option (3) are left out.
+static constexpr uint8_t LORAFISH_PAGE_COUNT = 7;
+#else
 static constexpr uint8_t LORAFISH_PAGE_COUNT = 8;
+#endif
 static int8_t loRaFishRfHistory[48] = {0};
 static uint8_t loRaFishRfHistoryCount = 0;
 static uint32_t loRaFishRfSeenSeq = 0;
@@ -347,8 +353,85 @@ static constexpr unsigned long LORAFISH_FEED_DONE_MS =
   LORAFISH_FEED_DROP_MS + LORAFISH_FEED_EAT_MS + LORAFISH_FEED_RETURN_MS;
 static constexpr uint32_t LORAFISH_PACKETS_PER_FEED = 10;
 
+#if defined(LORAFISH_FISH_WANDER) && defined(LORAFISH_TALL_TANK)
+// LilyGo T-Watch S3 (tall tank): the fish wanders instead of patrolling
+// wall to wall. Time is split into segments; in each one the fish glides to a
+// new spot (x anywhere inside the tank margins, y within the middle band that
+// TWatchS3TankView moves to the centre of the tall tank), then hovers for the
+// rest of the segment. About one segment in six is a quick dart. Every spot is
+// derived from the segment number, so the path is still a pure function of
+// millis(): feeding, visitors and travel animations keep working unchanged.
+struct LoRaFishWanderInfo {
+  bool hovering;
+  unsigned long hoverElapsed;
+};
+
+static uint32_t loRaFishWanderHash(uint32_t n, uint32_t salt) {
+  uint32_t h = n * 2654435761UL ^ salt * 0x9E3779B9UL;
+  h ^= h >> 15; h *= 0x85EBCA6BUL;
+  h ^= h >> 13; h *= 0xC2B2AE35UL;
+  h ^= h >> 16;
+  return h;
+}
+
+static void loRaFishWanderPoint(uint32_t n, uint8_t stage, int w, int& x, int& y) {
+  const uint32_t h = loRaFishWanderHash(n, 0x51EDUL + stage);
+  const int margin = 20;                 // same sprite-safe margin as the patrol path
+  const int span = max(1, w - margin * 2);
+  x = margin + (int)(h % (uint32_t)(span + 1));
+  y = 30 + (int)((h >> 16) % 19U);       // rows 30-48: keeps every stage's sprite in rows 16-63
+}
+
+static void loRaFishWanderPosition(int w, uint8_t stage, unsigned long phaseOffset,
+                                   int& x, int& y, bool& right, LoRaFishWanderInfo* info) {
+  const unsigned long segMs = stage == 0 ? 5000UL : stage == 1 ? 6000UL : stage >= 3 ? 9500UL : 7500UL;
+  const unsigned long t = millis() + phaseOffset;
+  const uint32_t n = (uint32_t)(t / segMs);
+  const unsigned long into = t % segMs;
+
+  int x0, y0, x1, y1;
+  loRaFishWanderPoint(n - 1, stage, w, x0, y0);
+  loRaFishWanderPoint(n, stage, w, x1, y1);
+
+  const uint32_t h = loRaFishWanderHash(n, 0xD1CEUL + stage);
+  const bool dart = (h % 6U) == 0;
+  const unsigned long moveMs = dart ? 500UL : segMs * (50UL + (h >> 8) % 26U) / 100UL;
+  float e = 1.0f;
+  if (into < moveMs) {
+    const float p = into / (float)moveMs;
+    e = dart ? 1.0f - (1.0f - p) * (1.0f - p) * (1.0f - p)   // burst, then coast
+             : p * p * (3.0f - 2.0f * p);                     // ease in and out
+  }
+  x = x0 + (int)((x1 - x0) * e);
+  y = y0 + (int)((y1 - y0) * e) + (int)(1.0f * sinf((millis() + phaseOffset) / 650.0f));
+  right = x1 >= x0;
+  if (info) {
+    info->hovering = into >= moveMs;
+    info->hoverElapsed = info->hovering ? into - moveMs : 0;
+  }
+}
+
+// A couple of small bubbles drift up from the fish's mouth while it hovers.
+static void drawLoRaFishWanderBubbles(DisplayDriver& d, int x, int y, bool right, uint8_t stage,
+                                      const LoRaFishWanderInfo& info) {
+  if (!info.hovering) return;
+  static const int mouth[] = {9, 12, 15, 18};
+  const int mx = x + (right ? mouth[min((uint8_t)3, stage)] : -mouth[min((uint8_t)3, stage)]);
+  d.setColor(UIColor::secondary_txt);
+  for (int i = 0; i < 2; i++) {
+    const long age = (long)info.hoverElapsed - 250L - i * 450L;
+    if (age < 0 || age > 1800L) continue;
+    const int rise = (int)(age / 110L);
+    d.drawRect(mx + (i ? 2 : 0) + (int)(1.5f * sinf(age / 260.0f)), y - 3 - rise, i ? 2 : 3, i ? 2 : 3);
+  }
+}
+#endif
+
 static void loRaFishNaturalPositionForStage(int w, uint8_t stage, unsigned long phaseOffset,
                                              int& x, int& y, bool& right) {
+#if defined(LORAFISH_FISH_WANDER) && defined(LORAFISH_TALL_TANK)
+  loRaFishWanderPosition(w, stage, phaseOffset, x, y, right, nullptr);
+#else
   // Keep every fish inside the actual aquarium area.  Visitors use the same
   // smooth triangular swim path as the home fish, just phase-shifted so two
   // fish do not sit on top of each other.
@@ -366,6 +449,7 @@ static void loRaFishNaturalPositionForStage(int w, uint8_t stage, unsigned long 
   x=right ? margin+(int)(span*phase*2.0f)
           : margin+(int)(span*(1.0f-phase)*2.0f);
   y=38+(int)(2.0f*sinf((millis()+phaseOffset)/650.0f));
+#endif
 }
 
 static void loRaFishNaturalPosition(int w, int& x, int& y, bool& right) {
@@ -1469,8 +1553,23 @@ static void drawLoRaFishOptions(DisplayDriver& display, UITask* task) {
   const uint8_t first=loRaFishOption>3 ? loRaFishOption-3 : 0;
   drawLoRaFishHeader(display,"OPTIONS","");
   display.setColor(UIColor::primary_txt);
+#if defined(LORAFISH_NO_GNSS_PAGE)
+  // Same list with option 3 (GNSS monitor) left out; option numbers unchanged.
+  (void)first;
+  uint8_t visible[8];
+  uint8_t visibleCount=0, selectedRow=0;
+  for (uint8_t option=0; option<count && visibleCount<sizeof(visible); option++) {
+    if (option==3) continue;
+    if (option==loRaFishOption) selectedRow=visibleCount;
+    visible[visibleCount++]=option;
+  }
+  const uint8_t firstRow=selectedRow>3 ? selectedRow-3 : 0;
+  for (uint8_t row=0; row<4 && firstRow+row<visibleCount; row++) {
+    const uint8_t option=visible[firstRow+row];
+#else
   for (uint8_t row=0; row<4 && first+row<count; row++) {
     const uint8_t option=first+row;
+#endif
     const char* label=option<5 ? labels[option] : "Breed with visitor";
     if (option==5) label="Guess game";
   #ifdef PIN_BUZZER
@@ -2096,6 +2195,13 @@ static void drawLoRaFishAquarium(DisplayDriver& display, UITask* task) {
       display.setCursor(min(w-4,sleepX+19), max(12,sleepY-16)); display.print("Z");
     } else if (!homeTraveling && !loRaFishHomeTravelAnimation.active) {
       drawHomeFishSprite(display,x,y,right);
+#if defined(LORAFISH_FISH_WANDER) && defined(LORAFISH_TALL_TANK)
+      if (!loRaFishFeeding) {
+        int wx, wy; bool wright; LoRaFishWanderInfo info;
+        loRaFishWanderPosition(w, fish.evolution, 0, wx, wy, wright, &info);
+        drawLoRaFishWanderBubbles(display, x, y, right, fish.evolution, info);
+      }
+#endif
     }
   } else {
     const bool homeLeaving=loRaFishHomeTravelAnimation.active &&
@@ -2860,6 +2966,9 @@ public:
     if (c == KEY_ENTER || c == KEY_NEXT) {
       if (loRaFishPage == 5) {
         loRaFishOption = (loRaFishOption + 1) % loRaFishOptionCount();
+#if defined(LORAFISH_NO_GNSS_PAGE)
+        if (loRaFishOption == 3) loRaFishOption = (loRaFishOption + 1) % loRaFishOptionCount();
+#endif
       } else if (loRaFishPage == 12) {
         loRaFishDisplayOption = (loRaFishDisplayOption + 1) % loRaFishDisplayOptionCount();
       } else if (loRaFishPage == 8) {
@@ -3973,6 +4082,9 @@ static bool loRaFishWatchListStep(int8_t dir) {
   if (loRaFishPage==5) {
     const int n=loRaFishOptionCount();
     loRaFishOption=(uint8_t)((loRaFishOption+n+dir)%n);
+#if defined(LORAFISH_NO_GNSS_PAGE)
+    if (loRaFishOption==3) loRaFishOption=(uint8_t)((loRaFishOption+n+dir)%n);
+#endif
     return true;
   }
   if (loRaFishPage==12) {
