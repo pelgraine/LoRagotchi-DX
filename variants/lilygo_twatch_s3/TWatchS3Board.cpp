@@ -1,10 +1,40 @@
 #include <Arduino.h>
 #include "TWatchS3Board.h"
 #include "target.h"
+#ifdef LORAFISH_MECK_DUALBOOT
+  #include <esp_ota_ops.h>
+#endif
 
 void TWatchS3Board::begin() {
   ESP32Board::begin();
   power_init();
+
+#ifdef LORAFISH_MECK_DUALBOOT
+  // Boot escape hatch, ported from Meck: a FRESH side-button press within
+  // the first 800 ms after power-up switches boot to the other app slot
+  // (Meck) and restarts. The power-on press itself doesn't count: latched
+  // edges are cleared first, so only a release and a new press does.
+  if (_axp) {
+    _axp->getIrqStatus();
+    _axp->clearIrqStatus();       // discard the power-on press
+    bool hatch_held = false;
+    unsigned long hatch_t0 = millis();
+    while (millis() - hatch_t0 < 800) {
+      delay(30);
+      _axp->getIrqStatus();
+      if (_axp->isPekeyNegativeIrq()) hatch_held = true;   // fresh press
+      if (_axp->isPekeyPositiveIrq()) hatch_held = false;  // released
+      _axp->clearIrqStatus();
+    }
+    if (hatch_held) {
+      const esp_partition_t* hatch_next = esp_ota_get_next_update_partition(NULL);
+      if (hatch_next && esp_ota_set_boot_partition(hatch_next) == ESP_OK) {
+        Serial.printf("Hatch: side button held, rebooting into %s\n", hatch_next->label);
+        esp_restart();
+      }
+    }
+  }
+#endif
 }
 
 // Power setup ported from the Meck T-Watch firmware.

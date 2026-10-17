@@ -1,0 +1,32 @@
+# LoRaGotchi Meck dual-boot build (TWatch_S3_LoRaFish_meck_secondary): an
+# exact copy of Meck's T-Watch S3 partition table, so this build can sit in
+# Meck's second app slot and share its nvs and spiffs partitions. Must stay
+# identical to Meck's copy.
+#
+# Meck -- LilyGo T-Watch S3 / S3 Plus 16 MB custom partition layout (OTA two-slot)
+#
+# Two equal 2.5 MB OTA app slots + otadata. Sized so two firmware variants
+# can be resident at once (e.g. standalone in ota_0, BLE companion in
+# ota_1) with switching done by boot-partition selection, and so a web
+# OTA upload always has the other slot to write to. nvs, spiffs and maps
+# are shared by both slots, so contacts, steps, config and books persist
+# across a firmware swap. Largest current build (S3 BLE merged, Aug 2026)
+# is 2.1 MB.
+#
+# Both data partitions use the 'spiffs' subtype (the standard ESP32 data
+# subtype). The DataStore is mounted as SPIFFS via SPIFFS.begin() (first
+# spiffs-subtype partition by offset); maps is mounted as LittleFS by the
+# explicit "maps" label, so the mount type is chosen at mount time, not by
+# subtype.
+#
+# NOTE: flashing this shifts the layout and wipes BOTH data partitions --
+# export config and download it via File Manager first; re-provision
+# identity/contacts, re-import config, and re-upload maps/books after.
+#
+# Name,   Type, SubType,  Offset,    Size
+nvs,      data, nvs,      0x9000,    0x5000
+otadata,  data, ota,      0xe000,    0x2000
+app0,     app,  ota_0,    0x10000,   0x280000
+app1,     app,  ota_1,    0x290000,  0x280000
+spiffs,   data, spiffs,   0x510000,  0x400000
+maps,     data, spiffs,   0x910000,  0x6F0000

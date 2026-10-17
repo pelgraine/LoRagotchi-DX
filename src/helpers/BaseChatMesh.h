@@ -61,9 +61,18 @@ class BaseChatMesh : public mesh::Mesh {
 
   friend class ContactsIterator;
 
+#ifdef CONTACTS_IN_PSRAM
+  // Large contact tables (for example 2,000 on the T-Watch S3 Meck dual-boot
+  // build) live in PSRAM, allocated on first use by resetContacts(). Same
+  // slot layout as the static arrays below.
+  ContactInfo* contacts;
+  int num_contacts;
+  int* sort_array;
+#else
   ContactInfo contacts[MAX_CONTACTS+MAX_ANON_CONTACTS];
   int num_contacts;
   int sort_array[MAX_CONTACTS+MAX_ANON_CONTACTS];
+#endif
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   unsigned long txt_send_timeout;
 #ifdef MAX_GROUP_CHANNELS
@@ -81,7 +90,13 @@ protected:
   BaseChatMesh(mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::PacketManager& mgr, mesh::MeshTables& tables)
       : mesh::Mesh(radio, ms, rng, rtc, mgr, tables)
   {
+  #ifdef CONTACTS_IN_PSRAM
+    contacts = NULL;      // allocated by the first resetContacts() call
+    sort_array = NULL;
+    num_contacts = 0;
+  #else
     resetContacts();
+  #endif
 
   #ifdef MAX_GROUP_CHANNELS
     memset(channels, 0, sizeof(channels));
@@ -95,6 +110,12 @@ protected:
   void bootstrapRTCfromContacts();
 
   void resetContacts() {
+  #ifdef CONTACTS_IN_PSRAM
+    if (contacts == NULL) {
+      contacts = (ContactInfo*)ps_calloc(MAX_CONTACTS+MAX_ANON_CONTACTS, sizeof(ContactInfo));
+      sort_array = (int*)ps_calloc(MAX_CONTACTS+MAX_ANON_CONTACTS, sizeof(int));
+    }
+  #endif
     memset(contacts, 0, sizeof(contacts[0])*MAX_ANON_CONTACTS);   // set all to have type = ADV_TYPE_NONE(0)
     num_contacts = MAX_ANON_CONTACTS;  // seed the first contacts for anon requests
   }

@@ -7,6 +7,9 @@
 #include "../MyMesh.h"
 #include "target.h"
 #include <time.h>
+#ifdef LORAFISH_MECK_DUALBOOT
+  #include <esp_ota_ops.h>
+#endif
 #ifdef ENABLE_WIFI_INTERFACE
   #include <WiFi.h>
 #endif
@@ -309,7 +312,22 @@ static bool loRaFishCanBreed() {
   return false;
 #endif
 }
+#ifdef LORAFISH_MECK_DUALBOOT
+// Meck dual-boot build: a fixed "Boot Meck" item after the standard items,
+// with "Breed with visitor" (when available) after it, so the item a long
+// press acts on doesn't change when breeding becomes available.
+static uint8_t loRaFishBootMeckOptionIndex() {
+#ifdef PIN_BUZZER
+  return 7;
+#else
+  return 6;
+#endif
+}
+#endif
 static uint8_t loRaFishOptionCount() {
+#ifdef LORAFISH_MECK_DUALBOOT
+  return loRaFishBootMeckOptionIndex()+1+(loRaFishCanBreed() ? 1 : 0);
+#endif
 #ifdef PIN_BUZZER
   return 7+(loRaFishCanBreed() ? 1 : 0);
 #else
@@ -317,6 +335,9 @@ static uint8_t loRaFishOptionCount() {
 #endif
 }
 static uint8_t loRaFishBreedOptionIndex() {
+#ifdef LORAFISH_MECK_DUALBOOT
+  return loRaFishBootMeckOptionIndex()+1;
+#endif
 #ifdef PIN_BUZZER
   return 7;
 #else
@@ -1575,6 +1596,9 @@ static void drawLoRaFishOptions(DisplayDriver& display, UITask* task) {
   #ifdef PIN_BUZZER
     if (option==6) label="Sound";
   #endif
+  #ifdef LORAFISH_MECK_DUALBOOT
+    if (option==loRaFishBootMeckOptionIndex()) label="Boot Meck";
+  #endif
     char line[24];
     snprintf(line,sizeof(line),"%c %s",option==loRaFishOption ? '>' : ' ',label);
     display.setCursor(3,17+row*9);
@@ -1596,6 +1620,10 @@ static void drawLoRaFishOptions(DisplayDriver& display, UITask* task) {
 #endif
   } else if (loRaFishOption==5) {
     display.drawTextCentered(w/2,56,"LONG: PLAY GAME");
+#ifdef LORAFISH_MECK_DUALBOOT
+  } else if (loRaFishOption==loRaFishBootMeckOptionIndex()) {
+    display.drawTextCentered(w/2,56,"LONG: BOOT MECK");
+#endif
   } else {
     display.drawTextCentered(w/2,56,"LONG PRESS: BREED");
   }
@@ -3960,6 +3988,30 @@ char UITask::handleLongPress(char c) {
       startLoRaFishGuessGame();
       loRaFishPage=16;
       _next_refresh=0;
+#ifdef LORAFISH_MECK_DUALBOOT
+    } else if (loRaFishOption==loRaFishBootMeckOptionIndex()) {
+      // Save the fish and any pending contact changes, then restart into
+      // the other app slot (Meck). Prefs and channels are never written by
+      // this build, so there is nothing else to save.
+      if (_display != NULL) {
+        _display->startFrame();
+        _display->setTextSize(1);
+        _display->setColor(UIColor::primary_txt);
+        _display->drawTextCentered(_display->width() / 2, 28, "Booting Meck...");
+        _display->endFrame();
+      }
+      saveLoRaFishSettings();
+      saveLoRaFish();
+      the_mesh.flushDirtyContacts();
+      const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+      if (next && esp_ota_set_boot_partition(next) == ESP_OK) {
+        Serial.printf("Boot Meck: rebooting into %s\n", next->label);
+        delay(300);
+        ESP.restart();
+      }
+      showAlert("Boot Meck failed",1200);
+      _next_refresh=0;
+#endif
     } else if (loRaFishCanBreed() && loRaFishOption==loRaFishBreedOptionIndex()) {
       if (breedLoRaFishWithGuest()) {
         loRaFishOption=0;

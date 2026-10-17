@@ -241,6 +241,16 @@ public:
     _store->savePrefs(_prefs);
     _prefs.clearDirty();
   }
+#ifdef LORAFISH_MECK_DUALBOOT
+  // Write any pending contact changes now (normally written 5 s after the
+  // last change), before switching to Meck.
+  void flushDirtyContacts() {
+    if (dirty_contacts_expiry) {
+      saveContacts();
+      dirty_contacts_expiry = 0;
+    }
+  }
+#endif
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {

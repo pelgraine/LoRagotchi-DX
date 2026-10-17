@@ -247,6 +247,11 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs) {
 }
 
 bool DataStore::savePrefs(NodePrefs& _prefs) {
+#ifdef LORAFISH_MECK_DUALBOOT
+  // Meck dual-boot build: prefs.json belongs to Meck (it holds keys this
+  // firmware doesn't know), so it is read here but never written.
+  return false;
+#endif
   File file = openWrite(_fs, "/prefs.json");
   if (file) {
     bool success = _prefs.saveSerial(file);
@@ -321,7 +326,21 @@ void DataStore::saveContacts(DataStoreHost* host, bool (*filter)(const ContactIn
 }
 
 void DataStore::loadChannels(DataStoreHost* host) {
+#ifdef LORAFISH_MECK_DUALBOOT
+    // Meck dual-boot build: read Meck's channel file, newest format first
+    // (same order as Meck's loader). /channels4 records are 115 bytes and
+    // /channels3 records 99 bytes: the same first 68 bytes as /channels2,
+    // then a 31-byte scope name (and in /channels4 a 16-byte scope key),
+    // which this firmware has no field for and skips. Read only: Meck's
+    // crash-recovery renames are left to Meck.
+    FILESYSTEM* fs = _getContactsChannelsFS();
+    const bool v4 = fs->exists("/channels4");
+    const bool v3 = !v4 && fs->exists("/channels3");
+    const size_t extra = v4 ? 31 + 16 : (v3 ? 31 : 0);
+    File file = openRead(fs, v4 ? "/channels4" : (v3 ? "/channels3" : "/channels2"));
+#else
     File file = openRead(_getContactsChannelsFS(), "/channels2");
+#endif
     if (file) {
       bool full = false;
       uint8_t channel_idx = 0;
@@ -332,6 +351,12 @@ void DataStore::loadChannels(DataStoreHost* host) {
         bool success = (file.read(unused, 4) == 4);
         success = success && (file.read((uint8_t *)ch.name, 32) == 32);
         success = success && (file.read((uint8_t *)ch.channel.secret, 32) == 32);
+#ifdef LORAFISH_MECK_DUALBOOT
+        if (extra > 0) {
+          uint8_t skip[31 + 16];
+          success = success && (file.read(skip, extra) == extra);
+        }
+#endif
 
         if (!success) break; // EOF
 
@@ -346,6 +371,10 @@ void DataStore::loadChannels(DataStoreHost* host) {
 }
 
 void DataStore::saveChannels(DataStoreHost* host) {
+#ifdef LORAFISH_MECK_DUALBOOT
+  // Meck dual-boot build: channels are Meck's, read only here.
+  return;
+#endif
   File file = openWrite(_getContactsChannelsFS(), "/channels2");
   if (file) {
     uint8_t channel_idx = 0;
