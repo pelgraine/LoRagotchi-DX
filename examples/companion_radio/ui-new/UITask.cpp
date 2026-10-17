@@ -1417,6 +1417,19 @@ static void drawLoRaFishEgg(DisplayDriver& display,UITask* task) {
   drawLoRaFishTankBattery(display,task,tb);
   drawLoRaFishEggSprite(display,w/2,24);
   display.fillRect(2,h-15,w-4,1);
+#if defined(LORAFISH_TALL_TANK)
+  // LilyGo T-Watch S3: hatching countdown in the tall tank, above the footer line.
+  {
+    const long msLeft=(long)(LORAFISH_EGG_MINUTES-fish.ageMinutes)*60000L-(long)(millis()-fishLastMinute);
+    if (msLeft>0) {
+      const long secsLeft=(msLeft+999)/1000;
+      char countdown[24];
+      snprintf(countdown,sizeof(countdown),"HATCHING IN %ld:%02ld",secsLeft/60,secsLeft%60);
+      display.setColor(UIColor::secondary_txt);
+      display.drawTextCentered(w/2,h-25,countdown);
+    }
+  }
+#endif
   drawLoRaFishTankStatusBar(display,"0",task);
 }
 
@@ -1632,7 +1645,12 @@ static void drawLoRaFishColorMenu(DisplayDriver& display) {
   display.setColor(UIColor::primary_txt);
   display.drawTextCentered(w/2,43,loRaFishColorNames[min((uint8_t)(LORAFISH_COLOR_ALLELE_COUNT-1),color)]);
   display.setColor(UIColor::secondary_txt);
+#if defined(LORAFISH_WATCH_TOUCH)
+  // LilyGo T-Watch S3 touch controls: tap = colour, hold = next part.
+  display.drawTextCentered(w/2,56,"TAP:COLOUR  HOLD:PART");
+#else
   display.drawTextCentered(w/2,56,"CLICK:NEXT  2X:PART");
+#endif
 }
 
 static void drawLoRaFishTimeMenu(DisplayDriver& display) {
@@ -2498,8 +2516,15 @@ public:
 #if defined(LORAFISH_TALL_TANK)
     // LilyGo T-Watch S3: the aquarium page (page 0) is drawn on a taller canvas
     // so the tank fills the square screen; see TWatchS3TankView.
-    if (loRaFishPage == 0) drawLoRaFish(tank_display, _task);
-    else drawLoRaFish(display, _task);
+    if (loRaFishPage == 0) {
+      drawLoRaFish(tank_display, _task);
+    } else {
+      drawLoRaFish(display, _task);
+#if defined(LORAFISH_WATCH_TOUCH)
+      // Touch hint in the margin below the centred screen.
+      ::display.drawFooterHint("<tap back", "tap forward>", UIColor::secondary_txt);
+#endif
+    }
 #else
     drawLoRaFish(display, _task);
 #endif

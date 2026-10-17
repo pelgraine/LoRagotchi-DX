@@ -138,6 +138,10 @@ public:
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;
 
+  // One line of hint text in the margin below a centred screen (frame rows
+  // 117-124): `left` at the left edge, `right` against the right edge.
+  void drawFooterHint(const char* left, const char* right, ColorVal color);
+
   // Touch position in panel pixels (0..239, same orientation as the display).
   // Returns false when no finger is reported.
   bool getTouch(int* x, int* y);

@@ -99,6 +99,18 @@ uint16_t TWatchS3Display::getTextWidth(const char* str) {
   return _frame.textWidth(str);
 }
 
+void TWatchS3Display::drawFooterHint(const char* left, const char* right, ColorVal color) {
+  if (!_buffered) return;
+  const int y = FRAME_HEIGHT - 11;
+  _frame.setTextSize(1);
+  _frame.setTextColor((uint16_t)color);
+  _frame.setCursor(0, y);
+  _frame.print(left);
+  _frame.setCursor(LOGICAL_WIDTH - _frame.textWidth(right), y);
+  _frame.print(right);
+  _frame.setTextColor(_color);
+}
+
 void TWatchS3Display::endFrame() {
   if (!_isOn || !_buffered) return;
   _lcd.startWrite();
