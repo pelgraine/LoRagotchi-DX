@@ -97,7 +97,7 @@ LoRaFish buzzer outputs are assigned per board:
 
 ### LilyGo T-Watch S3
 
-The watch has no buzzer, so the Sound menu is hidden. The aquarium keeps its usual 128x64 layout, scaled up to a full-width band across the middle of the 240x240 screen.
+The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle; the other screens are centred.
 
 The watch uses directional taps and swipes:
 

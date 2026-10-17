@@ -26,8 +26,10 @@ extern SensorManager sensors;
 
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
-  // Side PWR key + touch screen, presented to the UI as its single button.
+  // Side PWR key + touch screen (TWatchInput.h).
   extern TWatchInput user_btn;
+  // Taller canvas for the LoRaGotchi aquarium page (LORAFISH_TALL_TANK).
+  extern TWatchS3TankView tank_display;
 #endif
 
 bool radio_init();

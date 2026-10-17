@@ -10,8 +10,9 @@
 // poll() reports one gesture at a time, using the same touch model as the
 // Meck T-Watch firmware:
 //   TW_PWR_CLICK        side PWR key, press < 1s (also wakes the display)
-//   TW_TAP_TOP          tap in the top area (empty strip above the UI band,
-//                       plus the header row)
+//   TW_TAP_TOP          tap in the top 90 panel pixels (the margin above a
+//                       centred screen plus its header row; on the full-height
+//                       aquarium, the header and the top of the tank)
 //   TW_TAP_LEFT/RIGHT   tap in the left / right half below that
 //   TW_SWIPE_*          finger moved at least SWIPE_PX; fires while still down
 //   TW_HOLD             finger held still for HOLD_MS; fires while still down
@@ -49,7 +50,7 @@ public:
   static const unsigned long MIN_INTERVAL_MS = 300; // after a swipe/hold: minimum gap before re-arming
   static const unsigned long HOLD_MS = 750;
   static const int SWIPE_PX = 32;                  // panel pixels (Meck: 16 at half scale)
-  static const int TOP_ZONE_PX = 90;               // strip above the band + the 16-row header
+  static const int TOP_ZONE_PX = 90;               // margin above a centred screen + its 16-row header
 
 private:
   TWatchS3Board& _board;

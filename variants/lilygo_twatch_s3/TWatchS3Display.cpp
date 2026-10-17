@@ -12,10 +12,8 @@ ColorVal UIColor::popup_bkg = 0x001F;
 ColorVal UIColor::popup_txt = 0xFFFF;
 ColorVal UIColor::corp_blue = 0x001A;
 
-// Scale from the 128x64 layout to the panel width, and the band's position.
-static const float BAND_ZOOM = (float)LCD_HOR_SIZE / TWatchS3Display::LOGICAL_WIDTH;  // 1.875
-static const int BAND_HEIGHT = (int)(TWatchS3Display::LOGICAL_HEIGHT * BAND_ZOOM);   // 120
-static const int BAND_TOP = (LCD_VER_SIZE - BAND_HEIGHT) / 2;                         // 60
+// 128 frame columns -> 240 panel pixels; the 128-row frame fills the panel.
+static const float FRAME_ZOOM = (float)LCD_HOR_SIZE / TWatchS3Display::LOGICAL_WIDTH;   // 1.875
 
 bool TWatchS3Display::begin() {
   _lcd.init();
@@ -26,10 +24,9 @@ bool TWatchS3Display::begin() {
 
   _frame.setColorDepth(16);
   _frame.setPsram(false);
-  _buffered = _frame.createSprite(LOGICAL_WIDTH, LOGICAL_HEIGHT) != nullptr;
+  _buffered = _frame.createSprite(LOGICAL_WIDTH, FRAME_HEIGHT) != nullptr;
   _frame.setTextSize(1);
   _isOn = true;
-  _strips_valid = false;
   return _buffered;
 }
 
@@ -38,7 +35,6 @@ void TWatchS3Display::turnOn() {
     _lcd.wakeup();
     _lcd.setBrightness(_brightness);
     _isOn = true;
-    _strips_valid = false;
   }
 }
 
@@ -56,13 +52,11 @@ void TWatchS3Display::setBrightness(uint8_t brightness) {
 
 void TWatchS3Display::clear() {
   if (_buffered) _frame.fillScreen((uint16_t)0x0000);
-  _bkg = 0x0000;
 }
 
 void TWatchS3Display::startFrame(ColorVal bkg) {
-  _bkg = (uint16_t)bkg;
   if (_buffered) {
-    _frame.fillScreen(_bkg);
+    _frame.fillScreen((uint16_t)bkg);   // whole frame, so the margins match
     _frame.setCursor(0, 0);
   }
   // Same as SSD1306Display: each frame starts in the primary text colour.
@@ -79,23 +73,23 @@ void TWatchS3Display::setColor(ColorVal c) {
   _frame.setTextColor(_color);
 }
 
-void TWatchS3Display::setCursor(int x, int y) {
-  _frame.setCursor(x, y);
-}
-
 void TWatchS3Display::print(const char* str) {
   if (_buffered) _frame.print(str);
 }
 
-void TWatchS3Display::fillRect(int x, int y, int w, int h) {
+void TWatchS3Display::rawSetCursor(int x, int y) {
+  _frame.setCursor(x, y);
+}
+
+void TWatchS3Display::rawFillRect(int x, int y, int w, int h) {
   if (_buffered) _frame.fillRect(x, y, w, h, _color);
 }
 
-void TWatchS3Display::drawRect(int x, int y, int w, int h) {
+void TWatchS3Display::rawDrawRect(int x, int y, int w, int h) {
   if (_buffered) _frame.drawRect(x, y, w, h, _color);
 }
 
-void TWatchS3Display::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
+void TWatchS3Display::rawDrawXbm(int x, int y, const uint8_t* bits, int w, int h) {
   // The shared icons are MSB-first (as drawn by SSD1306Display via Adafruit
   // drawBitmap); LovyanGFX's drawBitmap uses the same order, drawXBitmap does not.
   if (_buffered) _frame.drawBitmap(x, y, bits, w, h, _color);
@@ -108,13 +102,7 @@ uint16_t TWatchS3Display::getTextWidth(const char* str) {
 void TWatchS3Display::endFrame() {
   if (!_isOn || !_buffered) return;
   _lcd.startWrite();
-  if (!_strips_valid || _strip_color != _bkg) {
-    _lcd.fillRect(0, 0, LCD_HOR_SIZE, BAND_TOP, _bkg);
-    _lcd.fillRect(0, BAND_TOP + BAND_HEIGHT, LCD_HOR_SIZE, LCD_VER_SIZE - BAND_TOP - BAND_HEIGHT, _bkg);
-    _strip_color = _bkg;
-    _strips_valid = true;
-  }
-  _frame.pushRotateZoom(&_lcd, LCD_HOR_SIZE / 2.0f, BAND_TOP + BAND_HEIGHT / 2.0f, 0, BAND_ZOOM, BAND_ZOOM);
+  _frame.pushRotateZoom(&_lcd, LCD_HOR_SIZE / 2.0f, LCD_VER_SIZE / 2.0f, 0, FRAME_ZOOM, FRAME_ZOOM);
   _lcd.endWrite();
 }
 

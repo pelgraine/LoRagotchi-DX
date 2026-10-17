@@ -5,11 +5,14 @@
 // (SDA 39 / SCL 40, INT 16). Panel and touch configuration ported from the
 // Meck T-Watch firmware.
 //
-// The LoRaGotchi UI is laid out for a 128x64 canvas. It is drawn into a
-// 128x64 RGB565 frame buffer, which endFrame() scales by 1.875 (240/128) to a
-// full-width 240x120 band in the middle of the square panel, keeping the
-// layout's proportions. The strips above and below are filled with the frame
-// background colour.
+// The LoRaGotchi UI is laid out for a 128x64 canvas. Everything is drawn into
+// a 128x128 RGB565 frame buffer, which endFrame() scales by 1.875 (240/128) to
+// fill the square panel, keeping the layout's proportions:
+//   - TWatchS3Display itself is the normal 128x64 canvas. Its drawing lands in
+//     the middle of the frame (rows 32-95), so menus and other screens are
+//     centred on the panel.
+//   - TWatchS3TankView (below) is a 128x128 canvas over the same frame, used
+//     for the aquarium screen so the tank fills the panel (see that class).
 
 #include <helpers/ui/DisplayDriver.h>
 
@@ -93,19 +96,26 @@ public:
 };
 
 class TWatchS3Display : public DisplayDriver {
+  friend class TWatchS3TankView;
+
   LGFX_TWatchS3 _lcd;
   LGFX_Sprite _frame;
   bool _isOn = false;
   bool _buffered = false;
   uint16_t _color = 0xFFFF;
-  uint16_t _bkg = 0x0000;
-  bool _strips_valid = false;
-  uint16_t _strip_color = 0x0000;
   uint8_t _brightness = 255;
 
+  // Drawing in frame-buffer rows, shared by both canvases.
+  void rawSetCursor(int x, int y);
+  void rawFillRect(int x, int y, int w, int h);
+  void rawDrawRect(int x, int y, int w, int h);
+  void rawDrawXbm(int x, int y, const uint8_t* bits, int w, int h);
+
 public:
-  static const int LOGICAL_WIDTH = 128;
+  static const int LOGICAL_WIDTH = 128;    // canvas the UI is laid out for
   static const int LOGICAL_HEIGHT = 64;
+  static const int FRAME_HEIGHT = 128;     // frame buffer rows (fills the panel)
+  static const int MENU_OFFSET_Y = (FRAME_HEIGHT - LOGICAL_HEIGHT) / 2;   // 32
 
   TWatchS3Display() : DisplayDriver(LOGICAL_WIDTH, LOGICAL_HEIGHT), _frame(&_lcd) {}
 
@@ -120,15 +130,56 @@ public:
   void startFrame(ColorVal bkg = UIColor::window_bkg) override;
   void setTextSize(int sz) override;
   void setColor(ColorVal c) override;
-  void setCursor(int x, int y) override;
+  void setCursor(int x, int y) override { rawSetCursor(x, y + MENU_OFFSET_Y); }
   void print(const char* str) override;
-  void fillRect(int x, int y, int w, int h) override;
-  void drawRect(int x, int y, int w, int h) override;
-  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;
+  void fillRect(int x, int y, int w, int h) override { rawFillRect(x, y + MENU_OFFSET_Y, w, h); }
+  void drawRect(int x, int y, int w, int h) override { rawDrawRect(x, y + MENU_OFFSET_Y, w, h); }
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override { rawDrawXbm(x, y + MENU_OFFSET_Y, bits, w, h); }
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;
 
   // Touch position in panel pixels (0..239, same orientation as the display).
   // Returns false when no finger is reported.
   bool getTouch(int* x, int* y);
+};
+
+// TWatchS3TankView -- a 128x128 canvas over the same frame buffer, for the
+// LoRaGotchi aquarium screen (selected in UITask.cpp under LORAFISH_TALL_TANK).
+//
+// The aquarium drawing places the header at fixed rows 0-15, the footer, floor
+// and bubbles relative to height() (so they land at the bottom of the 128-row
+// tank: rows 80 and below), and the fish, guest fish, egg, gravestone, food and
+// messages at fixed rows 16-63. Those fixed tank rows are moved down by 32 so
+// the tank contents sit in the middle of the taller tank, exactly as they sat
+// in the middle of the 64-row one.
+//
+// startFrame()/endFrame() are run on the main TWatchS3Display by UITask, so
+// here they do nothing.
+class TWatchS3TankView : public DisplayDriver {
+  TWatchS3Display& _d;
+
+  static int mapY(int y) {
+    return (y >= 16 && y < TWatchS3Display::LOGICAL_HEIGHT) ? y + TWatchS3Display::MENU_OFFSET_Y : y;
+  }
+
+public:
+  TWatchS3TankView(TWatchS3Display& d)
+    : DisplayDriver(TWatchS3Display::LOGICAL_WIDTH, TWatchS3Display::FRAME_HEIGHT), _d(d) {}
+
+  bool supportsColor() const override { return true; }
+  bool isOn() override { return _d.isOn(); }
+  void turnOn() override { _d.turnOn(); }
+  void turnOff() override { _d.turnOff(); }
+  void setBrightness(uint8_t brightness) override { _d.setBrightness(brightness); }
+  void clear() override { _d.clear(); }
+  void startFrame(ColorVal bkg = UIColor::window_bkg) override { }
+  void endFrame() override { }
+  void setTextSize(int sz) override { _d.setTextSize(sz); }
+  void setColor(ColorVal c) override { _d.setColor(c); }
+  void setCursor(int x, int y) override { _d.rawSetCursor(x, mapY(y)); }
+  void print(const char* str) override { _d.print(str); }
+  void fillRect(int x, int y, int w, int h) override { _d.rawFillRect(x, mapY(y), w, h); }
+  void drawRect(int x, int y, int w, int h) override { _d.rawDrawRect(x, mapY(y), w, h); }
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override { _d.rawDrawXbm(x, mapY(y), bits, w, h); }
+  uint16_t getTextWidth(const char* str) override { return _d.getTextWidth(str); }
 };

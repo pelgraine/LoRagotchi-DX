@@ -2488,7 +2488,14 @@ public:
 
   int render(DisplayDriver& display) override {
 #ifdef LORAFISH_UI
+#if defined(LORAFISH_TALL_TANK)
+    // LilyGo T-Watch S3: the aquarium page (page 0) is drawn on a taller canvas
+    // so the tank fills the square screen; see TWatchS3TankView.
+    if (loRaFishPage == 0) drawLoRaFish(tank_display, _task);
+    else drawLoRaFish(display, _task);
+#else
     drawLoRaFish(display, _task);
+#endif
     // Static pages (menus, stats, pairing) only need an occasional redraw; button
     // presses reset _next_refresh in checkDisplayOn(), so they stay responsive.
     if (loRaFishPage == 0) {
