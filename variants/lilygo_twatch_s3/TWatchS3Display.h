@@ -128,6 +128,7 @@ public:
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;
 
-  // True while a finger is on the touch panel.
-  bool isTouched();
+  // Touch position in panel pixels (0..239, same orientation as the display).
+  // Returns false when no finger is reported.
+  bool getTouch(int* x, int* y);
 };

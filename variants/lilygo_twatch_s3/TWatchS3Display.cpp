@@ -118,7 +118,10 @@ void TWatchS3Display::endFrame() {
   _lcd.endWrite();
 }
 
-bool TWatchS3Display::isTouched() {
+bool TWatchS3Display::getTouch(int* x, int* y) {
   lgfx::touch_point_t point;
-  return _lcd.getTouch(&point) > 0;
+  if (_lcd.getTouch(&point) == 0) return false;
+  *x = point.x;
+  *y = point.y;
+  return true;
 }

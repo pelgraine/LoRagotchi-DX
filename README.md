@@ -98,16 +98,19 @@ LoRaFish buzzer outputs are assigned per board:
 
 The watch has no buzzer, so the Sound menu is hidden. The aquarium keeps its usual 128x64 layout, scaled up to a full-width band across the middle of the 240x240 screen.
 
-The touch screen and side button stand in for the usual single button:
+The watch uses directional taps and swipes:
 
-| Gesture | Acts as |
-| --- | --- |
-| Tap the screen | Short click |
-| Two quick taps | Double-click |
-| Hold a finger on the screen for about one second | Long-press |
-| Short press of the side button | Short click (and wakes the screen) |
+| Gesture | Main screens (Aquarium to GNSS) | Lists (DX Visit, Options, Display) | Setting screens |
+| --- | --- | --- | --- |
+| Tap the top area (above the header, or the header itself) | Back: DX Visit and GNSS go to Options, the others go to the Aquarium | Back to the previous screen | Back to the parent menu (on the new-fish colour screen: confirm the fish) |
+| Tap the right half | Next screen | Next item | Change the value forward |
+| Tap the left half | Previous screen | Previous item | Change the value backward |
+| Swipe left / right | Next / previous screen | Next / previous screen | - |
+| Swipe down / up | - | Next / previous item | Next / previous field |
+| Hold a finger still for about a second | Long-press action (for example, clean the tank) | Long-press action (open the item, send or recall a DX visit) | Long-press action |
+| Short press of the side button | Next (and wakes the screen) | Next item | Change the value forward |
 
-Taps are ignored while the screen is off; press the side button to wake it. Holding the side button for 6 seconds is a hardware power-off, so it cannot be used for a long-press.
+The on-screen hints (CLICK, LONG, 2X) describe the single-button controls used on other boards. Taps are ignored while the screen is off; press the side button to wake it. Holding the side button for 6 seconds is a hardware power-off.
 
 There are two builds:
 

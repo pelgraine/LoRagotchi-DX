@@ -3417,6 +3417,10 @@ void UITask::loop() {
     }
   }
 #endif
+#if defined(LORAFISH_UI) && defined(LORAFISH_WATCH_TOUCH)
+  // LilyGo T-Watch S3: directional taps and swipes (see handleWatchTouch).
+  c = handleWatchTouch(user_btn.poll());
+#endif
 #if UI_HAS_JOYSTICK
   int ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
@@ -3440,7 +3444,7 @@ void UITask::loop() {
   if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
-#elif defined(PIN_USER_BTN)
+#elif defined(PIN_USER_BTN) && !(defined(LORAFISH_UI) && defined(LORAFISH_WATCH_TOUCH))
   int ev = user_btn.check();
   #ifdef UI_HAS_NAV_INPUT
   if (ev == BUTTON_EVENT_CLICK) {
@@ -3905,6 +3909,178 @@ char UITask::handleTripleClick(char c) {
   c = 0;
   return c;
 }
+
+#if defined(LORAFISH_UI) && defined(LORAFISH_WATCH_TOUCH)
+// ---------------------------------------------------------------------------
+// LilyGo T-Watch S3 touch navigation, modelled on the Meck T-Watch firmware.
+// Gestures come from variants/lilygo_twatch_s3/TWatchInput.h.
+//
+//   Gesture          Main pages (0-7)        Lists (DX, Options,     Setting pages
+//                                            Display menu)
+//   tap top area     back one level          back one level          back one level
+//   tap right half   next (= click)          next item (= click)     value forward (= click)
+//   tap left half    previous page           previous item           value backward
+//   swipe left/right next / previous page    next / previous page    -
+//   swipe down/up    -                       next / previous item    next / previous field
+//   hold             long-press              long-press              long-press
+//   side key         click (wakes display)   click                   click
+//
+// Back: DX and GNSS go to Options, Options and the other main pages go to the
+// aquarium, sub-pages go to their parent (as their double-click or long-press
+// already does on single-button boards).
+// ---------------------------------------------------------------------------
+static bool loRaFishWatchListStep(int8_t dir) {
+  if (loRaFishPage==5) {
+    const int n=loRaFishOptionCount();
+    loRaFishOption=(uint8_t)((loRaFishOption+n+dir)%n);
+    return true;
+  }
+  if (loRaFishPage==12) {
+    const int n=loRaFishDisplayOptionCount();
+    loRaFishDisplayOption=(uint8_t)((loRaFishDisplayOption+n+dir)%n);
+    return true;
+  }
+  if (loRaFishPage==4 && !loragotchiDXHome.away && !loragotchiDXHome.pending) {
+    const int n=the_mesh.getNumContacts();
+    if (n>0) loRaFishDXContactIndex=(uint32_t)(((int)(loRaFishDXContactIndex%n)+n+dir)%n);
+    return true;
+  }
+  return false;
+}
+
+static bool loRaFishWatchFieldStep(int8_t dir) {
+  if (loRaFishPage==9)  { loRaFishColorField=(uint8_t)((loRaFishColorField+3+dir)%3); return true; }
+  if (loRaFishPage==10) { loRaFishTimeField=(uint8_t)((loRaFishTimeField+3+dir)%3); return true; }
+  if (loRaFishPage==11) { loRaFishTimeoutField=(uint8_t)((loRaFishTimeoutField+3+dir)%3); return true; }
+#ifdef PIN_BUZZER
+  if (loRaFishPage==14) { loRaFishSoundField=(uint8_t)((loRaFishSoundField+4+dir)%4); return true; }
+#endif
+  return false;
+}
+
+// Reverse of the forward (click) step in HomeScreen::handleInput.
+static bool loRaFishWatchValueBack() {
+  switch (loRaFishPage) {
+    case 8: {
+      const uint8_t n=loRaFishThemeCount();
+      loRaFishTheme=(uint8_t)((loRaFishTheme+n-1)%n);
+      applyLoRaFishTheme();
+      saveLoRaFishSettings();
+      return true;
+    }
+    case 9: {
+      uint8_t& color=loRaFishColorField==0 ? loRaFishScaleColor
+                       : loRaFishColorField==1 ? loRaFishColor : loRaFishEyeColor;
+      color=(uint8_t)((color+LORAFISH_COLOR_ALLELE_COUNT-1)%LORAFISH_COLOR_ALLELE_COUNT);
+      loRaFishSyncDXAppearance();
+      saveLoRaFishSettings();
+      return true;
+    }
+    case 10:
+      if (loRaFishTimeField == 0)
+        loRaFishSleepHour = (loRaFishSleepHour + 23) % 24;
+      else if (loRaFishTimeField == 1)
+        loRaFishWakeHour = (loRaFishWakeHour + 23) % 24;
+      else
+        loRaFishUtcOffsetQuarters = loRaFishUtcOffsetQuarters <= -48 ? 56 : loRaFishUtcOffsetQuarters - 1;
+      saveLoRaFishSettings();
+      return true;
+    case 11:
+      if (loRaFishTimeoutField==0) loRaFishTimeoutAwakeSetting=(loRaFishTimeoutAwakeSetting+5)%6;
+      else if (loRaFishTimeoutField==1) loRaFishTimeoutAsleepSetting=(loRaFishTimeoutAsleepSetting+5)%6;
+      else loRaFishAlwaysOnDimSetting=(loRaFishAlwaysOnDimSetting+2)%3;
+      saveLoRaFishSettings();
+      return true;
+    case 13:
+      loRaFishBrightnessSetting=(loRaFishBrightnessSetting+3)%4;
+      loRaFishBrightnessNeedsApply=true;
+      saveLoRaFishSettings();
+      return true;
+    case 15:   // two-state toggle: backward is the same as forward
+      loRaFishSimulationMode=!loRaFishSimulationMode;
+      saveLoRaFishSettings();
+      return true;
+    case 16:   // Higher / Lower toggle
+      if (!loRaFishGuessComplete) {
+        loRaFishGuessHigher=!loRaFishGuessHigher;
+        loRaFishGuessResultShown=false;
+      }
+      return true;
+    default:
+      return false;
+  }
+}
+
+char UITask::handleWatchTouch(int gesture) {
+  const bool mainPage = loRaFishPage < LORAFISH_PAGE_COUNT;
+  bool handled = false;
+
+  switch ((TWatchGesture)gesture) {
+    case TW_NONE:
+      return 0;
+
+    case TW_PWR_CLICK:
+      return checkDisplayOn(KEY_NEXT);
+
+    case TW_TAP_RIGHT:
+      return KEY_NEXT;   // same as a click
+
+    case TW_HOLD:
+      return handleLongPress(KEY_ENTER);
+
+    case TW_TAP_TOP:     // back one level
+      switch (loRaFishPage) {
+        case 4: case 5: case 7: case 8: case 9: case 12: case 16:
+          handleDoubleClick(KEY_PREV);   // their existing "back" step
+          break;
+        case 10: loRaFishOption=4; loRaFishPage=5; break;
+        case 11: loRaFishDisplayOption=0; loRaFishPage=12; break;
+        case 13: loRaFishDisplayOption=1; loRaFishPage=12; break;
+        case 14: loRaFishOption=6; loRaFishPage=5; break;
+        case 15: loRaFishDisplayOption=loRaFishColorDisplay ? 4 : 3; loRaFishPage=12; break;
+        default: loRaFishPage=0; break;
+      }
+      handled = true;
+      break;
+
+    case TW_TAP_LEFT:
+      if (loRaFishWatchListStep(-1)) {
+        handled = true;
+      } else if (mainPage) {
+        loRaFishPage=(loRaFishPage+LORAFISH_PAGE_COUNT-1)%LORAFISH_PAGE_COUNT;
+        handled = true;
+      } else if (loRaFishWatchValueBack()) {
+        handled = true;
+      } else {
+        return KEY_NEXT;   // no backward step on this page: act as a click
+      }
+      break;
+
+    case TW_SWIPE_LEFT:
+    case TW_SWIPE_RIGHT:
+      if (mainPage) {
+        const int dir = (gesture == TW_SWIPE_LEFT) ? 1 : -1;
+        loRaFishPage=(loRaFishPage+LORAFISH_PAGE_COUNT+dir)%LORAFISH_PAGE_COUNT;
+        handled = true;
+      }
+      break;
+
+    case TW_SWIPE_UP:
+    case TW_SWIPE_DOWN: {
+      const int8_t dir = (gesture == TW_SWIPE_DOWN) ? 1 : -1;
+      handled = loRaFishWatchListStep(dir) || loRaFishWatchFieldStep(dir);
+      break;
+    }
+  }
+
+  if (handled && _display != NULL) {
+    loRaFishRegisterDisplayActivity(*_display);
+    _auto_off = loRaFishScreenTimeoutMs() ? millis() + loRaFishScreenTimeoutMs() : 0xFFFFFFFFUL;
+    _next_refresh = 0;
+  }
+  return 0;
+}
+#endif
 
 bool UITask::getGPSState() {
   if (_sensors != NULL) {
