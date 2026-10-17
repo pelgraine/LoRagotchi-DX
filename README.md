@@ -51,6 +51,8 @@ For setup, controls, menus, pet behavior, and DX travel, see [Getting Started](G
 | --- | --- |
 | T-Beam (SX1262) | Tbeam_SX1262_LoRaFish_companion_ble
 | T-Beam (SX1276) | Tbeam_SX1276_LoRaFish_companion_ble
+| LilyGo T-Watch S3 (BLE) | TWatch_S3_LoRaFish_companion_ble
+| LilyGo T-Watch S3 (no Bluetooth) | TWatch_S3_LoRaFish_standalone
 
 ## Building
 
@@ -91,6 +93,28 @@ LoRaFish buzzer outputs are assigned per board:
 | Heltec WiFi LoRa 32 V4 OLED | GPIO6 |
 | Heltec T114 | GPIO46 / P1.14 |
 | Heltec T096 | GPIO45 / P1.13 |
+
+### LilyGo T-Watch S3
+
+The watch has no buzzer, so the Sound menu is hidden. The aquarium keeps its usual 128x64 layout, scaled up to a full-width band across the middle of the 240x240 screen.
+
+The touch screen and side button stand in for the usual single button:
+
+| Gesture | Acts as |
+| --- | --- |
+| Tap the screen | Short click |
+| Two quick taps | Double-click |
+| Hold a finger on the screen for about one second | Long-press |
+| Short press of the side button | Short click (and wakes the screen) |
+
+Taps are ignored while the screen is off; press the side button to wake it. Holding the side button for 6 seconds is a hardware power-off, so it cannot be used for a long-press.
+
+There are two builds:
+
+- `TWatch_S3_LoRaFish_companion_ble` is a normal MeshCore BLE companion, running at 80 MHz.
+- `TWatch_S3_LoRaFish_standalone` has no Bluetooth, for longer battery life. It drops the CPU to 40 MHz once booted, and pauses the main loop briefly on each pass while the screen is off. Without a phone app, the clock comes from the watch's RTC chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build).
+
+The hardware support (power, display, touch and side button) is ported from the T-Watch edition of [Meck](https://github.com/pelgraine/Meck) by pelgraine.
 
 The project tree also retains the wider upstream MeshCore targets and infrastructure from which LoRaGotchi is derived.
 
