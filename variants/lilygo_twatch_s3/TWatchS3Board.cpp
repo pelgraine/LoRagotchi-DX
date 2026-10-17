@@ -77,6 +77,20 @@ bool TWatchS3Board::power_init() {
   return true;
 }
 
+void TWatchS3Board::powerOff() {
+#ifdef DISPLAY_CLASS
+  display.turnOff();
+#endif
+  radio_driver.powerOff();
+  Serial.flush();
+  if (PMU) {
+    PMU->shutdown();
+    delay(1000);   // the PMU cuts power during this wait
+  }
+  // No PMU (or it did not act): fall back to deep sleep.
+  ESP32Board::powerOff();
+}
+
 void TWatchS3Board::onBootComplete() {
 #ifdef TWATCH_CPU_MHZ_AFTER_BOOT
   setCpuFrequencyMhz(TWATCH_CPU_MHZ_AFTER_BOOT);

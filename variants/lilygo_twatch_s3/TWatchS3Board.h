@@ -40,6 +40,16 @@ public:
     return PMU ? PMU->getBattVoltage() : 0;
   }
 
+  // USB power present, as reported by the PMU. Stops the low-battery
+  // auto-shutdown from firing while the watch is charging.
+  bool isExternalPowered() override {
+    return PMU ? PMU->isVbusIn() : false;
+  }
+
+  // Full power-off through the PMU (all rails off, as a 6s PWR key hold does).
+  // Hold the PWR key 2s to turn the watch back on.
+  void powerOff() override;
+
   const char* getManufacturerName() const override {
     return "LilyGo T-Watch S3";
   }

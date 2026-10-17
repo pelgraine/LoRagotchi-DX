@@ -96,7 +96,9 @@ void TWatchS3Display::drawRect(int x, int y, int w, int h) {
 }
 
 void TWatchS3Display::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
-  if (_buffered) _frame.drawXBitmap(x, y, bits, w, h, _color);
+  // The shared icons are MSB-first (as drawn by SSD1306Display via Adafruit
+  // drawBitmap); LovyanGFX's drawBitmap uses the same order, drawXBitmap does not.
+  if (_buffered) _frame.drawBitmap(x, y, bits, w, h, _color);
 }
 
 uint16_t TWatchS3Display::getTextWidth(const char* str) {
