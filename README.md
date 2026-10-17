@@ -97,7 +97,7 @@ LoRaFish buzzer outputs are assigned per board:
 
 ### LilyGo T-Watch S3
 
-The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle; the other screens are centred.
+The watch has no buzzer, so the Sound menu is hidden. The screens keep their usual 128-pixel-wide layout, scaled up to the full width of the 240x240 screen. The aquarium uses a taller tank that fills the screen, with the fish swimming in the middle, and the Cardputer's colour tank scenery (water, light, reef, sand and seaweed); the other screens are centred.
 
 The watch uses directional taps and swipes:
 
@@ -115,9 +115,9 @@ The on-screen hints (CLICK, LONG, 2X) describe the single-button controls used o
 
 There are two builds:
 
-- `TWatch_S3_LoRaFish_companion_ble` is a normal MeshCore BLE companion, running at 80 MHz.
-- `TWatch_S3_LoRaFish_standalone` has no Bluetooth, for longer battery life. It drops the CPU to 40 MHz once booted, and pauses the main loop briefly on each pass while the screen is off. Without a phone app, the clock comes from the watch's RTC chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build).
-- `TWatch_S3_1280_LoRaFish_companion_ble` is the BLE companion for the 2.4 GHz (SX1280) watch, running at 80 MHz. It boots on 2400.5 MHz / 406.25 kHz / SF11 / CR8.
+- `TWatch_S3_LoRaFish_companion_ble` is a normal MeshCore BLE companion, running at 80 MHz, with the aquarium at about 30 frames a second.
+- `TWatch_S3_LoRaFish_standalone` has no Bluetooth, for longer battery life. It drops the CPU to 40 MHz once booted, pauses the main loop briefly on each pass while the screen is off, and keeps the aquarium at 10 frames a second. Without a phone app, the clock comes from the watch's RTC chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build).
+- `TWatch_S3_1280_LoRaFish_companion_ble` is the BLE companion for the 2.4 GHz (SX1280) watch, running at 80 MHz, with the aquarium at about 30 frames a second. It boots on 2400.5 MHz / 406.25 kHz / SF11 / CR8.
 
 The hardware support (power, display, touch and side button) is ported from the T-Watch edition of [Meck](https://github.com/pelgraine/Meck) by pelgraine.
 

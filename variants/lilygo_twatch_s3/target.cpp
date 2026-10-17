@@ -23,6 +23,7 @@ SensorManager sensors;
   DISPLAY_CLASS display;
   TWatchInput user_btn(board, display);
   TWatchS3TankView tank_display(display);
+  TWatchS3TankView tank_scenery_display(display, false);
 #endif
 
 bool radio_init() {

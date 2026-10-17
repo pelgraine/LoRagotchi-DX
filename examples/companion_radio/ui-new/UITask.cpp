@@ -1175,6 +1175,13 @@ static void drawElderFishSprite(DisplayDriver& d, int x, int y, bool right,
 
 // Cardputer-only lightweight 2.5D effects. Other boards compile none of this.
 #if defined(LORAFISH_CARDPUTER_25D)
+#if defined(LORAFISH_TALL_TANK)
+// LilyGo T-Watch S3: on the tall aquarium canvas, draw the scenery over the
+// whole tank with no rows moved (see TWatchS3TankView).
+#define LORAFISH_SCENERY_CANVAS(d) (&(d) == &tank_display ? (DisplayDriver&)tank_scenery_display : (d))
+#else
+#define LORAFISH_SCENERY_CANVAS(d) (d)
+#endif
 static void drawCardputerFishDepth(DisplayDriver& d,int x,int y,bool right,uint8_t stage,
                                   const LoRaFishAppearance& appearance) {
   const int radius = stage==0 ? 5 : stage==1 ? 7 : stage==3 ? 11 : 9;
@@ -1978,7 +1985,7 @@ static void drawLoRaFishAquarium(DisplayDriver& display, UITask* task) {
   char tb[8], db[24];
   loRaFishClock(tb,sizeof(tb),db,sizeof(db));
 #if defined(LORAFISH_CARDPUTER_25D)
-  drawCardputerTankDepth(display);
+  drawCardputerTankDepth(LORAFISH_SCENERY_CANVAS(display));
 #endif
   drawLoRaFishHeader(display,loRaFishDisplayName(),tb);
   drawLoRaFishTankBattery(display,task,tb);
@@ -2211,7 +2218,7 @@ static void drawLoRaFishSleeping(DisplayDriver& display, UITask* task) {
 #if defined(LORAFISH_CARDPUTER_25D)
   // Keep the same 2.5D tank visible while the local fish sleeps.
   // Other boards retain their existing sleeping screen.
-  drawCardputerTankDepth(display);
+  drawCardputerTankDepth(LORAFISH_SCENERY_CANVAS(display));
   drawLoRaFishBubbles(display);
 #endif
   drawLoRaFishHeader(display,loRaFishDisplayName(),tb);
@@ -2499,9 +2506,10 @@ public:
     // Static pages (menus, stats, pairing) only need an occasional redraw; button
     // presses reset _next_refresh in checkDisplayOn(), so they stay responsive.
     if (loRaFishPage == 0) {
-#if defined(LORAFISH_CARDPUTER_25D)
+#if defined(LORAFISH_CARDPUTER_25D) && !defined(LORAFISH_25D_10FPS)
       // Cardputer LCD uses a framebuffer; 100 ms = only 10 FPS and makes
       // the pixel-stepped fish appear jerky. Target ~30 FPS on this board only.
+      // (LORAFISH_25D_10FPS keeps the usual rate, for battery-saving builds.)
       return loRaFishSimulationMode ? 100 : 33;
 #else
       return loRaFishSimulationMode ? 250 : 100;

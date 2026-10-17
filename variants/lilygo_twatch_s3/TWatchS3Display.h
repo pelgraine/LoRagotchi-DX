@@ -153,18 +153,23 @@ public:
 // the tank contents sit in the middle of the taller tank, exactly as they sat
 // in the middle of the 64-row one.
 //
+// With shiftTank=false it is a plain 128x128 canvas with no rows moved. That
+// is used for the tank scenery (LORAFISH_CARDPUTER_25D), which already spreads
+// itself over height() and must fill the whole tall tank.
+//
 // startFrame()/endFrame() are run on the main TWatchS3Display by UITask, so
 // here they do nothing.
 class TWatchS3TankView : public DisplayDriver {
   TWatchS3Display& _d;
+  bool _shift;
 
-  static int mapY(int y) {
-    return (y >= 16 && y < TWatchS3Display::LOGICAL_HEIGHT) ? y + TWatchS3Display::MENU_OFFSET_Y : y;
+  int mapY(int y) const {
+    return (_shift && y >= 16 && y < TWatchS3Display::LOGICAL_HEIGHT) ? y + TWatchS3Display::MENU_OFFSET_Y : y;
   }
 
 public:
-  TWatchS3TankView(TWatchS3Display& d)
-    : DisplayDriver(TWatchS3Display::LOGICAL_WIDTH, TWatchS3Display::FRAME_HEIGHT), _d(d) {}
+  TWatchS3TankView(TWatchS3Display& d, bool shiftTank = true)
+    : DisplayDriver(TWatchS3Display::LOGICAL_WIDTH, TWatchS3Display::FRAME_HEIGHT), _d(d), _shift(shiftTank) {}
 
   bool supportsColor() const override { return true; }
   bool isOn() override { return _d.isOn(); }

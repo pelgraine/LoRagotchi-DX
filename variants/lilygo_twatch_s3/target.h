@@ -30,6 +30,8 @@ extern SensorManager sensors;
   extern TWatchInput user_btn;
   // Taller canvas for the LoRaGotchi aquarium page (LORAFISH_TALL_TANK).
   extern TWatchS3TankView tank_display;
+  // Same frame with no rows moved, for the tank scenery (LORAFISH_CARDPUTER_25D).
+  extern TWatchS3TankView tank_scenery_display;
 #endif
 
 bool radio_init();
