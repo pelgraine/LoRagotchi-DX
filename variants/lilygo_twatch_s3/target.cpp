@@ -4,6 +4,8 @@
 TWatchS3Board board;
 
 // LoRa radio on its own SPI bus (the display uses SPI3_HOST separately).
+// SX1262 on the sub-GHz watch, SX1280 on the 2.4 GHz revision (TWATCH_SX1280):
+// same pins, only the radio chip differs.
 static SPIClass loraSpi;
 RADIO_CLASS radio = new Module(P_LORA_NSS, P_LORA_DIO_1, P_LORA_RESET, P_LORA_BUSY, loraSpi);
 

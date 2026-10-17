@@ -53,6 +53,7 @@ For setup, controls, menus, pet behavior, and DX travel, see [Getting Started](G
 | T-Beam (SX1276) | Tbeam_SX1276_LoRaFish_companion_ble
 | LilyGo T-Watch S3 (BLE) | TWatch_S3_LoRaFish_companion_ble
 | LilyGo T-Watch S3 (no Bluetooth) | TWatch_S3_LoRaFish_standalone
+| LilyGo T-Watch S3 SX1280 2.4 GHz (BLE) | TWatch_S3_1280_LoRaFish_companion_ble
 
 ## Building
 
@@ -116,6 +117,7 @@ There are two builds:
 
 - `TWatch_S3_LoRaFish_companion_ble` is a normal MeshCore BLE companion, running at 80 MHz.
 - `TWatch_S3_LoRaFish_standalone` has no Bluetooth, for longer battery life. It drops the CPU to 40 MHz once booted, and pauses the main loop briefly on each pass while the screen is off. Without a phone app, the clock comes from the watch's RTC chip, which keeps time across reboots and reflashing once it has been set (for example from the MeshCore app while running the BLE build).
+- `TWatch_S3_1280_LoRaFish_companion_ble` is the BLE companion for the 2.4 GHz (SX1280) watch, running at 80 MHz. It boots on 2400.5 MHz / 406.25 kHz / SF11 / CR8.
 
 The hardware support (power, display, touch and side button) is ported from the T-Watch edition of [Meck](https://github.com/pelgraine/Meck) by pelgraine.
 
