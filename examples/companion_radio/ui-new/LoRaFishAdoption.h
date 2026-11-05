@@ -69,6 +69,9 @@ static bool selectLoRaFishEggTank(bool next) {
   const int count=the_mesh.getNumContacts();int start=0;
   if (next && loRaFishEggSession.phase!=LoRaFishEgg::Closed) {
     for(int i=0;i<count;++i) {
+#ifdef CONTACTS_FLASH_INDEX
+      if(!(the_mesh.getContactIndexTag(MAX_ANON_CONTACTS+i)&LORAFISH_CONTACT_TAG_EGG)) continue;
+#endif
       ContactInfo c;
       if(the_mesh.getContactByIdx(MAX_ANON_CONTACTS+i,c) && !memcmp(c.id.pub_key,loRaFishEggSession.peer,32)) {
         start=i+1;break;
@@ -78,6 +81,9 @@ static bool selectLoRaFishEggTank(bool next) {
   // Explicit selection invalidates the previous nonce, including a removed peer.
   loRaFishEggSession.close();
   for(int i=0;i<count;++i) {
+#ifdef CONTACTS_FLASH_INDEX
+    if(!(the_mesh.getContactIndexTag(MAX_ANON_CONTACTS+(start+i)%count)&LORAFISH_CONTACT_TAG_EGG)) continue;
+#endif
     ContactInfo c;
     if (the_mesh.getContactByIdx(MAX_ANON_CONTACTS+(start+i)%count,c) &&
         c.type==ADV_TYPE_CHAT && LoRaFishText::hasEgg(c.name,sizeof(c.name))) {

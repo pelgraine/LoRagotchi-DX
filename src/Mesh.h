@@ -77,6 +77,21 @@ protected:
    */
   virtual int searchPeersByHash(const uint8_t* hash);
 
+#ifdef CONTACTS_FLASH_INDEX
+  /**
+   * \brief  Called once before the searchPeersByHash() candidates for a single received packet
+   *         are tried in turn, so an implementation can batch/cache any per-candidate storage
+   *         I/O (e.g. keep one file open) instead of paying setup/teardown cost per candidate.
+   *         Always paired with a following endPeerLookup() call.
+   */
+  virtual void beginPeerLookup() { }
+
+  /**
+   * \brief  Marks the end of the candidate-trying loop started by beginPeerLookup().
+   */
+  virtual void endPeerLookup() { }
+#endif
+
   /**
    * \brief  lookup the ECDH shared-secret between this node and peer by idx (calculate if necessary)
    * \param  dest_secret  destination array to copy the secret (must be PUB_KEY_SIZE bytes)

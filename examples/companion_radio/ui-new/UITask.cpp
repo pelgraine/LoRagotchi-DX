@@ -2710,6 +2710,9 @@ static bool loRaFishDXEligible(const ContactInfo& c) {
 static uint32_t loRaFishDXContactCount(uint32_t* selectedRow = nullptr) {
   uint32_t count = 0;
   for (int i = 0; i < the_mesh.getNumContacts(); ++i) {
+#ifdef CONTACTS_FLASH_INDEX
+    if (!(the_mesh.getContactIndexTag((uint32_t)MAX_ANON_CONTACTS + i) & LORAFISH_CONTACT_TAG_FISH)) continue;
+#endif
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)MAX_ANON_CONTACTS + i, c) && loRaFishDXEligible(c)) {
       if (selectedRow && (uint32_t)i == loRaFishDXContactIndex) *selectedRow = count;
@@ -2726,6 +2729,9 @@ static bool loRaFishDXGetContact(ContactInfo& c) {
   if (loRaFishDXContactIndex >= count) loRaFishDXContactIndex = 0;
   for (uint32_t offset = 0; offset < count; ++offset) {
     const uint32_t index = (loRaFishDXContactIndex + offset) % count;
+#ifdef CONTACTS_FLASH_INDEX
+    if (!(the_mesh.getContactIndexTag((uint32_t)MAX_ANON_CONTACTS + index) & LORAFISH_CONTACT_TAG_FISH)) continue;
+#endif
     if (the_mesh.getContactByIdx((uint32_t)MAX_ANON_CONTACTS + index, c) && loRaFishDXEligible(c)) {
       loRaFishDXContactIndex = index;
       return true;
@@ -2741,6 +2747,9 @@ static void moveLoRaFishDXContact(bool previous) {
   loRaFishDXContactIndex %= count;
   for (uint32_t step = 1; step <= count; ++step) {
     const uint32_t index = (loRaFishDXContactIndex + (previous ? count - step : step)) % count;
+#ifdef CONTACTS_FLASH_INDEX
+    if (!(the_mesh.getContactIndexTag((uint32_t)MAX_ANON_CONTACTS + index) & LORAFISH_CONTACT_TAG_FISH)) continue;
+#endif
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)MAX_ANON_CONTACTS + index, c) && loRaFishDXEligible(c)) {
       loRaFishDXContactIndex = index;
@@ -3733,6 +3742,8 @@ public:
       // the pixel-stepped fish appear jerky. Target ~30 FPS on this board only.
       // (LORAFISH_25D_10FPS keeps the usual rate, for battery-saving builds.)
       return loRaFishSimulationMode ? 100 : 33;
+#elif defined(LORAFISH_EINK_CANVAS)
+      return LORAFISH_EINK_TANK_MS;  // wait after each panel refresh, set in platformio.ini
 #else
       return loRaFishSimulationMode ? 250 : 100;
 #endif
@@ -4321,6 +4332,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   ui_started_at = millis();
 #ifdef LORAFISH_UI
   loRaFishColorDisplay = display && display->supportsColor();
+#ifdef LORAFISH_EINK_CANVAS
+  loRaFishTheme = 1;  // light (paper) tank by default; a saved Theme setting still wins
+#endif
   loadLoRaFish();
   loadLoRaFishSettings();
   loadLoRaFishEggReceipt();

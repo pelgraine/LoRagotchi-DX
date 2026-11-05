@@ -18,6 +18,15 @@ class DataStore {
   FILESYSTEM* _fsExtra;
   mesh::RTCClock* _clock;
   IdentityStore identity_store;
+#ifdef CONTACTS_FLASH_INDEX
+  File* _contactsScanFile = nullptr;   // held open between beginContactsScan()/endContactsScan()
+  int _contactsScanShard = -1;         // which /contacts3_N shard _contactsScanFile currently holds open
+  uint32_t _contactsScanIdx = 0;       // next logical contact index due to be read
+  File* _contactsLookupFile = nullptr; // held open between beginContactLookup()/endContactLookup()
+  int _contactsLookupShard = -1;       // which /contacts3_N shard _contactsLookupFile currently holds open
+  bool _contactsLookupActive = false;  // true between beginContactLookup()/endContactLookup()
+  void reshardContactsFileIfNeeded();  // one-time: split a legacy flat /contacts3 into per-shard files
+#endif
 
   void loadPrefsInt(const char *filename, NodePrefs& prefs);
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -37,6 +46,23 @@ public:
   bool savePrefs(NodePrefs& prefs);
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
+#ifdef CONTACTS_FLASH_INDEX
+  bool readContactRecord(uint32_t idx, ContactInfo& dest);
+  bool writeContactRecord(uint32_t idx, const ContactInfo& src);
+  bool truncateContactsFileIfNeeded(uint32_t used_records);
+
+  // batch-scan API used by BaseChatMesh::loadContactsFlashIndex() -- opens /contacts3 once for
+  // the whole boot scan instead of once per record (see loadContactsFlashIndex() for why).
+  bool beginContactsScan(uint32_t start_idx);
+  bool readNextContactRecord(ContactInfo& dest);
+  void endContactsScan();
+
+  // Batch-lookup hooks, used ONLY around the searchPeersByHash() candidate-trying loop in
+  // Mesh::onRecvPacket() -- keeps /contacts3 open across the (up to MAX_SEARCH_RESULTS) candidates
+  // tried for a single received packet, instead of readContactRecord() opening/closing it for each.
+  void beginContactLookup();
+  void endContactLookup();
+#endif
   void loadChannels(DataStoreHost* host);
   void saveChannels(DataStoreHost* host);
   void migrateToSecondaryFS();

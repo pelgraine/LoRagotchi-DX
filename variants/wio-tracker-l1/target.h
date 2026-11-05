@@ -9,7 +9,9 @@
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/sensors/EnvironmentSensorManager.h>
 #ifdef DISPLAY_CLASS
-  #if defined(WIO_TRACKER_L1_EINK)
+  #if defined(LORAFISH_EINK_CANVAS)
+    #include <helpers/ui/EinkCanvasDisplay.h>
+  #elif defined(WIO_TRACKER_L1_EINK)
     #include <helpers/ui/GxEPDDisplay.h>
   #else
     #include <helpers/ui/SH1106Display.h>

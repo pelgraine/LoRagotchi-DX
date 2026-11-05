@@ -42,6 +42,28 @@ static File openWrite(FILESYSTEM* fs, const char* filename) {
 #endif
 }
 
+#ifdef CONTACTS_FLASH_INDEX
+static File openReadWrite(FILESYSTEM* fs, const char* filename) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  return fs->open(filename, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  return fs->open(filename, "r+");
+#else
+  return fs->open(filename, "r+", false);
+#endif
+}
+
+static File openReadOnly(FILESYSTEM* fs, const char* filename) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  return fs->open(filename, FILE_O_READ);
+#elif defined(RP2040_PLATFORM)
+  return fs->open(filename, "r");
+#else
+  return fs->open(filename, "r", false);
+#endif
+}
+#endif
+
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   static uint32_t _ContactsChannelsTotalBlocks = 0;
 #endif
@@ -60,6 +82,9 @@ void DataStore::begin() {
 #else
   // init 'blob store' support
   _fs->mkdir("/bl");
+#endif
+#ifdef CONTACTS_FLASH_INDEX
+  reshardContactsFileIfNeeded();   // one-time: convert a pre-sharding flat /contacts3 into per-shard files
 #endif
 }
 
@@ -319,6 +344,327 @@ void DataStore::saveContacts(DataStoreHost* host, bool (*filter)(const ContactIn
     file.close();
   }
 }
+
+#ifdef CONTACTS_FLASH_INDEX
+// fixed on-disk size of one contact record (see loadContacts()/saveContacts() field layout below)
+#define CONTACT_RECORD_SIZE   152
+
+// Records per shard file. /contacts3 used to be one single flat file indexed by
+// idx*CONTACT_RECORD_SIZE -- fine for small MAX_CONTACTS, but once MAX_CONTACTS grows into the
+// thousands, updating even ONE already-written record (e.g. a contact's out_path via
+// CMD_ADD_UPDATE_CONTACT/CMD_RESET_PATH -- "setting a path" for a repeater login) risked
+// LittleFS's expensive "rewrite every block after this point" CTZ-skip-list cost (see
+// writeContactRecord() below) across the WHOLE multi-hundred-KB file. Splitting storage into
+// fixed-size shard files ("/contacts3_0", "/contacts3_1", ...) bounds that worst case to just one
+// shard's worth of records instead of the entire contacts file.
+#define CONTACTS_SHARD_RECORDS   256
+
+static void contactsShardFilename(char buf[24], uint32_t shard) {
+  snprintf(buf, 24, "/contacts3_%u", (unsigned) shard);
+}
+
+
+// Packs/unpacks one ContactInfo to/from a single CONTACT_RECORD_SIZE-byte buffer, so
+// readContactRecord()/writeContactRecord()/readNextContactRecord() can each do just ONE
+// file.read()/file.write() call per record instead of 12 separate field-level calls
+// (each call has its own overhead on top of the underlying flash I/O).
+static void packContactRecord(uint8_t rec[CONTACT_RECORD_SIZE], const ContactInfo& c) {
+  uint8_t unused = 0;
+  uint8_t* p = rec;
+  memcpy(p, c.id.pub_key, 32); p += 32;
+  memcpy(p, &c.name, 32); p += 32;
+  memcpy(p, &c.type, 1); p += 1;
+  memcpy(p, &c.flags, 1); p += 1;
+  memcpy(p, &unused, 1); p += 1;
+  memcpy(p, &c.sync_since, 4); p += 4;
+  memcpy(p, &c.out_path_len, 1); p += 1;
+  memcpy(p, &c.last_advert_timestamp, 4); p += 4;
+  memcpy(p, c.out_path, 64); p += 64;
+  memcpy(p, &c.lastmod, 4); p += 4;
+  memcpy(p, &c.gps_lat, 4); p += 4;
+  memcpy(p, &c.gps_lon, 4); p += 4;
+}
+
+static void unpackContactRecord(const uint8_t rec[CONTACT_RECORD_SIZE], ContactInfo& c) {
+  uint8_t pub_key[32];
+  const uint8_t* p = rec;
+  memcpy(pub_key, p, 32); p += 32;
+  memcpy(&c.name, p, 32); p += 32;
+  memcpy(&c.type, p, 1); p += 1;
+  memcpy(&c.flags, p, 1); p += 1;
+  p += 1;   // unused
+  memcpy(&c.sync_since, p, 4); p += 4;
+  memcpy(&c.out_path_len, p, 1); p += 1;
+  memcpy(&c.last_advert_timestamp, p, 4); p += 4;
+  memcpy(c.out_path, p, 64); p += 64;
+  memcpy(&c.lastmod, p, 4); p += 4;
+  memcpy(&c.gps_lat, p, 4); p += 4;
+  memcpy(&c.gps_lon, p, 4); p += 4;
+
+  c.id = mesh::Identity(pub_key);
+  c.shared_secret_valid = false;
+}
+
+bool DataStore::readContactRecord(uint32_t idx, ContactInfo& c) {
+  uint32_t shard = idx / CONTACTS_SHARD_RECORDS;
+  uint32_t slot  = idx % CONTACTS_SHARD_RECORDS;
+  char filename[24];
+  contactsShardFilename(filename, shard);
+
+  if (_contactsLookupActive) {
+    if (_contactsLookupFile == nullptr || _contactsLookupShard != (int)shard) {
+      // candidate lives in a different shard than the one currently held open -- switch to it
+      if (_contactsLookupFile != nullptr) {
+        _contactsLookupFile->close();
+        delete _contactsLookupFile;
+        _contactsLookupFile = nullptr;
+      }
+      File f = openRead(_getContactsChannelsFS(), filename);
+      if (!f) { _contactsLookupShard = -1; return false; }
+      _contactsLookupFile = new File(f);
+      _contactsLookupShard = (int)shard;
+    }
+    uint8_t rec[CONTACT_RECORD_SIZE];
+    bool success = _contactsLookupFile->seek(slot * CONTACT_RECORD_SIZE)
+                && (_contactsLookupFile->read(rec, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE);
+    if (success) unpackContactRecord(rec, c);
+    return success;
+  }
+  File file = openRead(_getContactsChannelsFS(), filename);
+  if (!file) return false;
+
+  bool success = file.seek(slot * CONTACT_RECORD_SIZE);
+  if (success) {
+    uint8_t rec[CONTACT_RECORD_SIZE];
+    success = (file.read(rec, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE);
+    if (success) unpackContactRecord(rec, c);
+  }
+  file.close();
+  return success;
+}
+
+// NOTE: deliberately does NOT pre-extend a shard to its full CONTACTS_SHARD_RECORDS capacity up
+// front. LittleFS's CTZ skip-list makes appends to the current end of a file cheap, but rewriting
+// a block BEFORE the current end requires rewriting every block after it too (their skip-list
+// pointers all point back to specific block addresses, which change once a preceding block is
+// rewritten) -- an O(blocks-after) cost. Growing each shard file lazily, only as far as the
+// highest slot actually written so far, keeps normal (increasing-index) contact adds a cheap
+// tail-only append; only genuine updates/tombstone-slot-reuse at an already-written index still
+// pay the seek-into-the-middle cost -- but since storage is now split into CONTACTS_SHARD_RECORDS-
+// sized shard files (see CONTACTS_SHARD_RECORDS above), that cost is bounded to at most one
+// shard's worth of records instead of the whole contacts file.
+bool DataStore::writeContactRecord(uint32_t idx, const ContactInfo& c) {
+  uint32_t shard = idx / CONTACTS_SHARD_RECORDS;
+  uint32_t slot  = idx % CONTACTS_SHARD_RECORDS;
+  char filename[24];
+  contactsShardFilename(filename, shard);
+
+  File file = openReadWrite(_getContactsChannelsFS(), filename);
+  if (!file) return false;
+
+  uint32_t want_pos = slot * CONTACT_RECORD_SIZE;
+  uint32_t cur_size = file.size();
+
+  uint8_t rec[CONTACT_RECORD_SIZE];
+  packContactRecord(rec, c);
+
+  bool success;
+  if (want_pos >= cur_size) {
+    // tail (or past it) -- cheap append, zero-filling any gap first
+    uint8_t zeroes[CONTACT_RECORD_SIZE];
+    memset(zeroes, 0, sizeof(zeroes));
+    success = file.seek(cur_size);
+    for (uint32_t pos = cur_size; success && pos < want_pos; pos += CONTACT_RECORD_SIZE) {
+      success = (file.write(zeroes, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE);
+    }
+    success = success && (file.write(rec, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE);
+  } else {
+    // updating an already-written slot -- bounded to at most this one shard's worth of records
+    success = file.seek(want_pos) && (file.write(rec, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE);
+  }
+  file.close();
+  return success;
+}
+
+// Shrinks a file down to want_size bytes. Adafruit_LittleFS (NRF52/STM32) exposes File::truncate()
+// directly; the ESP32/RP2040 fs::File wrapper does not, so on those platforms this emulates it by
+// reading the bytes to keep, then removing and rewriting the file with just that much data.
+static bool truncateFile(FILESYSTEM* fs, const char* filename, uint32_t want_size) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = openReadWrite(fs, filename);
+  if (!file) return false;
+  bool ok = file.truncate(want_size);
+  file.close();
+  return ok;
+#else
+  if (want_size == 0) return fs->remove(filename);
+
+  uint8_t* buf = new uint8_t[want_size];
+  bool ok;
+  {
+    File file = openReadOnly(fs, filename);
+    ok = file && (file.read(buf, want_size) == want_size);
+    if (file) file.close();
+  }
+  if (ok) {
+    File file = openWrite(fs, filename);
+    ok = file && (file.write(buf, want_size) == want_size);
+    if (file) file.close();
+  }
+  delete[] buf;
+  return ok;
+#endif
+}
+
+// One-time self-heal, called once at boot (after the contacts scan has determined how many
+// records are really in use). Older firmware used to pre-extend /contacts3 to the full
+// MAX_CONTACTS capacity via ensureContactsCapacity() -- devices that were ever flashed with that
+// code still have that oversized file sitting on disk. Since writeContactRecord() now judges
+// "cheap append vs expensive middle-of-file write" purely by comparing against file.size(), a
+// leftover oversized file makes EVERY write look like it's "before the end", permanently
+// re-triggering the exact slowness this was meant to fix. Shrink the file back down to just the
+// records actually in use so future writes are judged correctly. No-op once already right-sized.
+// Now shard-aware: any shard file entirely beyond used_records is just deleted outright (cheaper
+// and simpler than truncating it to empty), the one shard straddling the boundary is truncated to
+// its still-in-use records, and shards entirely before the boundary are left untouched.
+bool DataStore::truncateContactsFileIfNeeded(uint32_t used_records) {
+  FILESYSTEM* fs = _getContactsChannelsFS();
+  uint32_t used_shard = used_records / CONTACTS_SHARD_RECORDS;
+  uint32_t used_slot = used_records % CONTACTS_SHARD_RECORDS;
+
+  bool ok = true;
+  for (uint32_t shard = used_shard; ; shard++) {
+    char filename[24];
+    contactsShardFilename(filename, shard);
+    if (!fs->exists(filename)) break;   // no shard files were ever created beyond this point
+
+    if (shard == used_shard) {
+      File file = openReadOnly(fs, filename);
+      uint32_t cur_size = file ? file.size() : 0;
+      if (file) file.close();
+
+      uint32_t want_size = used_slot * CONTACT_RECORD_SIZE;
+      if (cur_size > want_size) ok = truncateFile(fs, filename, want_size) && ok;
+    } else {
+      ok = removeFile(fs, filename) && ok;
+    }
+  }
+  return ok;
+}
+
+// Batch-scan API, used ONLY by BaseChatMesh::loadContactsFlashIndex() at boot. Opens each shard
+// file once as the scan reaches it (instead of once per record like readContactRecord() does),
+// then reads sequentially with no further seeking within a shard -- avoids the per-record seek
+// cost that made boot time scale badly with MAX_CONTACTS once /contacts3 grew large.
+bool DataStore::beginContactsScan(uint32_t start_idx) {
+  endContactsScan();   // safety: close any previous (unbalanced) scan handle first
+  _contactsScanIdx = start_idx;
+  return true;   // actual shard file is opened lazily by readNextContactRecord()
+}
+
+bool DataStore::readNextContactRecord(ContactInfo& c) {
+  uint32_t shard = _contactsScanIdx / CONTACTS_SHARD_RECORDS;
+  uint32_t slot  = _contactsScanIdx % CONTACTS_SHARD_RECORDS;
+
+  if (_contactsScanFile == nullptr || _contactsScanShard != (int)shard) {
+    if (_contactsScanFile != nullptr) {
+      _contactsScanFile->close();
+      delete _contactsScanFile;
+      _contactsScanFile = nullptr;
+    }
+    char filename[24];
+    contactsShardFilename(filename, shard);
+    File f = openRead(_getContactsChannelsFS(), filename);
+    if (!f) return false;   // this shard was never created -- no more records beyond this point
+    if (!f.seek(slot * CONTACT_RECORD_SIZE)) {
+      f.close();
+      return false;
+    }
+    _contactsScanFile = new File(f);
+    _contactsScanShard = (int)shard;
+  }
+
+  uint8_t rec[CONTACT_RECORD_SIZE];
+  if (_contactsScanFile->read(rec, CONTACT_RECORD_SIZE) != CONTACT_RECORD_SIZE) return false;
+
+  unpackContactRecord(rec, c);
+  _contactsScanIdx++;
+  return true;
+}
+
+void DataStore::endContactsScan() {
+  if (_contactsScanFile != nullptr) {
+    _contactsScanFile->close();
+    delete _contactsScanFile;
+    _contactsScanFile = nullptr;
+  }
+  _contactsScanShard = -1;
+}
+
+// See readContactRecord() -- once active, it transparently opens/reuses shard handles via this
+// state instead of opening a shard fresh each call. Used around the searchPeersByHash() candidate
+// loop (a single incoming login/direct message can need to try several same-hash-prefix
+// candidates before finding the one that actually decrypts).
+void DataStore::beginContactLookup() {
+  endContactLookup();   // safety: close any previous (unbalanced) lookup handle first
+  _contactsLookupActive = true;
+}
+
+void DataStore::endContactLookup() {
+  if (_contactsLookupFile != nullptr) {
+    _contactsLookupFile->close();
+    delete _contactsLookupFile;
+    _contactsLookupFile = nullptr;
+  }
+  _contactsLookupShard = -1;
+  _contactsLookupActive = false;
+}
+
+// One-time migration for devices upgrading from pre-sharding firmware: if a legacy flat
+// /contacts3 file still exists (single file, idx*CONTACT_RECORD_SIZE offsets), split it into
+// CONTACTS_SHARD_RECORDS-sized /contacts3_N shard files and remove the old file. No-op (single
+// fs->exists() check) once a device has already been migrated, or on a fresh device that never
+// had one.
+void DataStore::reshardContactsFileIfNeeded() {
+  FILESYSTEM* fs = _getContactsChannelsFS();
+  if (!fs->exists("/contacts3")) return;
+
+  File oldFile = openRead(fs, "/contacts3");
+  if (oldFile) {
+    uint32_t idx = 0;
+    int cur_shard = -1;
+    File* shardFile = nullptr;
+    uint8_t rec[CONTACT_RECORD_SIZE];
+    while (oldFile.read(rec, CONTACT_RECORD_SIZE) == CONTACT_RECORD_SIZE) {
+      uint32_t shard = idx / CONTACTS_SHARD_RECORDS;
+      if ((int)shard != cur_shard) {
+        if (shardFile != nullptr) {
+          shardFile->close();
+          delete shardFile;
+          shardFile = nullptr;
+        }
+        char filename[24];
+        contactsShardFilename(filename, shard);
+        File f = openReadWrite(fs, filename);
+        if (f) shardFile = new File(f);
+        cur_shard = (int)shard;
+      }
+      if (shardFile != nullptr) {
+        uint32_t slot = idx % CONTACTS_SHARD_RECORDS;
+        shardFile->seek(slot * CONTACT_RECORD_SIZE);
+        shardFile->write(rec, CONTACT_RECORD_SIZE);
+      }
+      idx++;
+    }
+    if (shardFile != nullptr) {
+      shardFile->close();
+      delete shardFile;
+    }
+    oldFile.close();
+  }
+  fs->remove("/contacts3");
+}
+#endif
 
 void DataStore::loadChannels(DataStoreHost* host) {
     File file = openRead(_getContactsChannelsFS(), "/channels2");

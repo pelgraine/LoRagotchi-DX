@@ -147,6 +147,9 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
         if (self_id.isHashMatch(&dest_hash)) {
           // scan contacts DB, for all matching hashes of 'src_hash' (max 4 matches supported ATM)
           int num = searchPeersByHash(&src_hash);
+#ifdef CONTACTS_FLASH_INDEX
+          if (num > 0) beginPeerLookup();   // let impl batch/cache storage I/O across these candidates
+#endif
           // for each matching contact, try to decrypt data
           bool found = false;
           for (int j = 0; j < num; j++) {
@@ -157,6 +160,12 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
             uint8_t data[MAX_PACKET_PAYLOAD];
             int len = Utils::MACThenDecrypt(secret, data, macAndData, pkt->payload_len - i);
             if (len > 0) {  // success!
+#ifdef CONTACTS_FLASH_INDEX
+              // found our candidate -- close out the lookup batch now (onPeerPathRecv/onPeerDataRecv
+              // below may need to WRITE the contact record, which can't happen while our own
+              // read-only lookup handle from beginPeerLookup() is still open)
+              endPeerLookup();
+#endif
               if (pkt->getPayloadType() == PAYLOAD_TYPE_PATH) {
                 int k = 0;
                 uint8_t path_len = data[k++];
@@ -184,6 +193,9 @@ DispatcherAction Mesh::onRecvPacket(Packet* pkt) {
               break;
             }
           }
+#ifdef CONTACTS_FLASH_INDEX
+          if (num > 0) endPeerLookup();   // safety net: closes it if the loop above found no match
+#endif
           if (found) {
             pkt->markDoNotRetransmit();  // packet was for this node, so don't retransmit
           } else {

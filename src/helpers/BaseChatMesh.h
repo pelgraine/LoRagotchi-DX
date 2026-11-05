@@ -44,6 +44,24 @@ public:
   #define MAX_CONNECTIONS  16
 #endif
 
+#ifdef CONTACTS_FLASH_INDEX
+// Lightweight resident index entry, used instead of a fully resident ContactInfo[] when
+// MAX_CONTACTS is too large to keep every contact's full record (name/out_path/gps) in RAM.
+// Only the fields needed for fast matching/sorting are kept resident -- the full ContactInfo
+// record lives on flash (via loadContactRecord()/saveContactRecord()) and is fetched on demand.
+// pub_key_prefix stores the first 8 bytes of the contact's pub_key: enough to fully resolve
+// the 6/8-byte prefix lookups used elsewhere with no flash read, and to narrow full 32-byte
+// lookups down to (in practice) a single flash-read candidate.
+struct ContactIndexEntry {
+  uint8_t  pub_key_prefix[8];
+  uint32_t last_advert_timestamp;  // by THEIR clock -- needed for replay-attack check
+  uint32_t lastmod;                // by OUR clock -- needed for scanRecentContacts() sort order
+  uint8_t  type;                   // ADV_TYPE_NONE (0) marks a free/tombstoned slot
+  uint8_t  flags;
+  uint8_t  ui_tag;                 // set by contactIndexTag(); lets a UI skip flash reads
+};
+#endif
+
 struct ConnectionInfo {
   mesh::Identity server_id;
   unsigned long next_ping;
@@ -61,9 +79,23 @@ class BaseChatMesh : public mesh::Mesh {
 
   friend class ContactsIterator;
 
+#ifdef CONTACTS_FLASH_INDEX
+  // Only a lightweight per-contact index is resident; full records (name/out_path/gps) live on
+  // flash and are fetched on demand into _scratch by loadContactRecord()/saveContactRecord()
+  // (implemented by the DataStore-aware subclass, e.g. companion_radio's MyMesh).
+  ContactIndexEntry* contact_index;
+  int* sort_array;
+  ContactInfo _scratch;      // reusable buffer for the full record last fetched from flash --
+                             // only valid until the NEXT lookup call (single in-flight result)
+  int _scratch_idx;         // which slot _scratch currently holds (-1 = none)
+  int max_contacts;   // total allocated slots (incl. MAX_ANON_CONTACTS reserved at start)
+#else
   ContactInfo contacts[MAX_CONTACTS+MAX_ANON_CONTACTS];
+#endif
   int num_contacts;
+#ifndef CONTACTS_FLASH_INDEX
   int sort_array[MAX_CONTACTS+MAX_ANON_CONTACTS];
+#endif
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   unsigned long txt_send_timeout;
 #ifdef MAX_GROUP_CHANNELS
@@ -81,7 +113,15 @@ protected:
   BaseChatMesh(mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::PacketManager& mgr, mesh::MeshTables& tables)
       : mesh::Mesh(radio, ms, rng, rtc, mgr, tables)
   {
+#ifdef CONTACTS_FLASH_INDEX
+    contact_index = nullptr;
+    sort_array    = nullptr;
+    _scratch_idx  = -1;
+    max_contacts  = 0;
+    num_contacts  = 0;
+#else
     resetContacts();
+#endif
 
   #ifdef MAX_GROUP_CHANNELS
     memset(channels, 0, sizeof(channels));
@@ -94,8 +134,52 @@ protected:
 
   void bootstrapRTCfromContacts();
 
+#ifdef CONTACTS_FLASH_INDEX
+  void initContacts();
+
+  // storage concepts for flash-indexed contacts mode, implemented by a DataStore-aware subclass
+  virtual bool loadContactRecord(uint32_t idx, ContactInfo& dest) { return false; }
+  virtual bool saveContactRecord(uint32_t idx, const ContactInfo& src) { return false; }
+
+  // Batch-scan hooks, used ONLY by loadContactsFlashIndex() below. Opens the contacts file ONCE
+  // for the whole boot scan (seeking to start_idx), then reads sequentially with no further
+  // seeking -- avoids the O(log file_size) seek cost of calling loadContactRecord() per-slot,
+  // which made boot time scale badly with MAX_CONTACTS.
+  virtual bool beginContactsScan(uint32_t start_idx) { return false; }
+  virtual bool readNextContactRecord(ContactInfo& dest) { return false; }
+  virtual void endContactsScan() {}
+
+  // Called by Mesh::onRecvPacket() to bracket the loop that tries each searchPeersByHash()
+  // candidate in turn against the received packet -- lets the DataStore-aware subclass keep one
+  // file open across the whole candidate loop instead of paying open/close cost per candidate
+  // (a single incoming direct message/login can require trying several same-hash-prefix
+  // candidates before finding the one that actually decrypts).
+  virtual void beginContactLookupBatch() {}
+  virtual void endContactLookupBatch() {}
+  void beginPeerLookup() override { beginContactLookupBatch(); }
+  void endPeerLookup() override { endContactLookupBatch(); }
+
+  // One byte a subclass can derive from a full record and keep in the resident index, so its UI
+  // can filter contacts by something only the record holds without a flash read per contact.
+  virtual uint8_t contactIndexTag(const ContactInfo& contact) const { return 0; }
+
+  // Rebuilds the resident contact_index[] from flash at boot, by reading each positional slot
+  // (0..max_contacts-1) via loadContactRecord() and keeping just the lightweight index fields for
+  // any slot with type != ADV_TYPE_NONE. This REPLACES DataStore::loadContacts() for flash-indexed
+  // boards (that sequential/byte-stream reader is incompatible with the positional/sparse record
+  // layout used here -- see writeContactRecord(), which grows /contacts3 lazily rather than
+  // pre-extending it). Caller must have already called initContacts() first.
+  void loadContactsFlashIndex();
+#endif
+
   void resetContacts() {
+#ifdef CONTACTS_FLASH_INDEX
+    if (contact_index != nullptr) {
+      memset(contact_index, 0, sizeof(contact_index[0])*MAX_ANON_CONTACTS);   // set all to have type = ADV_TYPE_NONE(0)
+    }
+#else
     memset(contacts, 0, sizeof(contacts[0])*MAX_ANON_CONTACTS);   // set all to have type = ADV_TYPE_NONE(0)
+#endif
     num_contacts = MAX_ANON_CONTACTS;  // seed the first contacts for anon requests
   }
   void populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp);
@@ -173,6 +257,15 @@ public:
   ContactInfo* lookupContactByPubKey(const uint8_t* pub_key, int prefix_len);
   bool  removeContact(ContactInfo& contact);
   bool  addContact(const ContactInfo& contact);
+  // Persist changes made (in place) to a ContactInfo obtained from a recent lookup/iteration call.
+  // No-op (returns true) when contacts are fully resident (non flash-indexed boards), since mutating
+  // the returned reference already mutates the live, resident record directly.
+#ifdef CONTACTS_FLASH_INDEX
+  bool commitContact(ContactInfo& contact);
+  uint8_t getContactIndexTag(uint32_t idx) const { return (int)idx < num_contacts ? contact_index[idx].ui_tag : 0; }
+#else
+  bool commitContact(ContactInfo& contact) { return true; }
+#endif
   int getTotalContactSlots() const { return num_contacts; }
   int getNumContacts() const { return num_contacts - MAX_ANON_CONTACTS; }  // don't include the reserved slots at start
   bool getContactByIdx(uint32_t idx, ContactInfo& contact);

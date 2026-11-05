@@ -17,6 +17,9 @@ LoRagotchiChannel::Result LoRagotchiChannel::startupResult = LoRagotchiChannel::
 
 #ifdef LORAFISH_UI
 #include "LoRaFishCommit.h"
+#if defined(CONTACTS_FLASH_INDEX) && defined(LORAFISH_UI)
+#include "ui-new/LoRaFishText.h"
+#endif
 #include "LoRaFishArrival.h"
 static LoRaFishCommitFrame loRaFishCommitFrame;
 LoRaGotchiDXHomeState loragotchiDXHome;
@@ -564,7 +567,11 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
 
       // NOTE: the same ACK can be received multiple times!
       expected_ack_table[i].ack = 0; // clear expected hash, now that we have received ACK
+#ifdef CONTACTS_FLASH_INDEX
+      return lookupContactByPubKey(expected_ack_table[i].contact_pubkey, PUB_KEY_SIZE);
+#else
       return expected_ack_table[i].contact;
+#endif
     }
   }
   return checkConnectionsAck(data);
@@ -1267,6 +1274,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 }
 
 void MyMesh::begin() {
+#ifdef CONTACTS_FLASH_INDEX
+  initContacts();
+#endif
   BaseChatMesh::begin();
 
   if (!_store->loadMainIdentity(self_id)) {
@@ -1321,7 +1331,14 @@ void MyMesh::begin() {
   _active_ble_pin = _prefs.ble_pin;
 
   resetContacts();
+#ifdef CONTACTS_FLASH_INDEX
+  loadContactsFlashIndex();
+  // one-time self-heal for devices previously flashed with the old pre-extend-upfront code --
+  // see truncateContactsFileIfNeeded() comment
+  _store->truncateContactsFileIfNeeded(getTotalContactSlots());
+#else
   _store->loadContacts(this);
+#endif
   bootstrapRTCfromContacts();
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure public channel
   _store->loadChannels(this);
@@ -1491,7 +1508,11 @@ void MyMesh::handleCmdFrame(size_t len) {
         if (expected_ack) {
           expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis(); // add to circular table
           expected_ack_table[next_ack_idx].ack = expected_ack;
+#ifdef CONTACTS_FLASH_INDEX
+          memcpy(expected_ack_table[next_ack_idx].contact_pubkey, recipient->id.pub_key, PUB_KEY_SIZE);
+#else
           expected_ack_table[next_ack_idx].contact = recipient;
+#endif
           next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
         }
 
@@ -1669,6 +1690,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       recipient->out_path_len = OUT_PATH_UNKNOWN;
       // recipient->lastmod = ??   shouldn't be needed, app already has this version of contact
+      commitContact(*recipient);   // no-op on fully-resident boards; persists to flash otherwise
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -1681,6 +1703,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       recipient->lastmod = last_mod;
+      commitContact(*recipient);   // no-op on fully-resident boards; persists to flash otherwise
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -1859,9 +1882,11 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeOKFrame();
     }
   } else if (cmd_frame[0] == CMD_REBOOT && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
+#ifndef CONTACTS_FLASH_INDEX
     if (dirty_contacts_expiry) { // is there are pending dirty contacts write needed?
       saveContacts();
     }
+#endif
     board.reboot();
   } else if (cmd_frame[0] == CMD_GET_BATT_AND_STORAGE) {
     uint8_t reply[11];
@@ -1895,7 +1920,11 @@ void MyMesh::handleCmdFrame(size_t len) {
           writeOKFrame();
           // re-load contacts, to invalidate ecdh shared_secrets
           resetContacts();
+#ifdef CONTACTS_FLASH_INDEX
+          loadContactsFlashIndex();
+#else
           _store->loadContacts(this);
+#endif
         } else {
           writeErrFrame(ERR_CODE_FILE_IO_ERROR);
         }
@@ -2411,6 +2440,17 @@ void MyMesh::handleCmdFrame(size_t len) {
   }
 }
 
+#if defined(CONTACTS_FLASH_INDEX) && defined(LORAFISH_UI)
+// Remembered in the resident contact index so the pet's visit and adoption pickers can skip the
+// flash read for the contacts without a fish or egg marker in their name.
+uint8_t MyMesh::contactIndexTag(const ContactInfo& contact) const {
+  uint8_t tag = 0;
+  if (LoRaFishText::hasFish(contact.name, sizeof(contact.name))) tag |= LORAFISH_CONTACT_TAG_FISH;
+  if (LoRaFishText::hasEgg(contact.name, sizeof(contact.name))) tag |= LORAFISH_CONTACT_TAG_EGG;
+  return tag;
+}
+#endif
+
 static bool save_filter(const ContactInfo& c) {
   return c.type != ADV_TYPE_NONE;   // don't save the transient/anon entries
 }
@@ -2593,7 +2633,9 @@ void MyMesh::checkCLIRescueCmd() {
       if (success) {
         _store->saveMainIdentity(self_id);
         savePrefs();
+#ifndef CONTACTS_FLASH_INDEX
         saveContacts();
+#endif
         saveChannels();
         Serial.println("  > erase and rebuild done");
       } else {
@@ -2959,7 +3001,12 @@ void MyMesh::loop() {
 
   // is there are pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
+#ifndef CONTACTS_FLASH_INDEX
+    // flash-indexed boards persist each mutation immediately via commitContact(), so the
+    // deferred/full-rewrite saveContacts() (incompatible with the sparse/tombstoned record
+    // layout) must NOT run here -- just clear the (otherwise unused) timer.
     saveContacts();
+#endif
     dirty_contacts_expiry = 0;
   }
 }

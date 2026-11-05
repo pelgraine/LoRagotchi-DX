@@ -55,6 +55,10 @@ extern uint16_t loragotchiDXLocalSpecies;
 extern uint16_t loragotchiDXLocalMonoPixelTint;
 extern bool loragotchiDXReturnedFromMonochrome;
 bool loragotchiEggMessage(const uint8_t* key, const char* text, char* reply, size_t size);
+#ifdef CONTACTS_FLASH_INDEX
+#define LORAFISH_CONTACT_TAG_FISH 1  // contact name has a fish marker
+#define LORAFISH_CONTACT_TAG_EGG  2  // contact name has an egg marker
+#endif
 void loragotchiDXLoad();
 void loragotchiDXSave();
 #endif
@@ -263,6 +267,20 @@ protected:
   bool onChannelLoaded(uint8_t channel_idx, const ChannelDetails& ch) override { return setChannel(channel_idx, ch); }
   bool getChannelForSave(uint8_t channel_idx, ChannelDetails& ch) override { return getChannel(channel_idx, ch); }
 
+#ifdef CONTACTS_FLASH_INDEX
+  // flash-indexed contacts storage hooks (see BaseChatMesh::loadContactsFlashIndex()/commitContact())
+  bool loadContactRecord(uint32_t idx, ContactInfo& dest) override { return _store->readContactRecord(idx, dest); }
+  bool saveContactRecord(uint32_t idx, const ContactInfo& src) override { return _store->writeContactRecord(idx, src); }
+  bool beginContactsScan(uint32_t start_idx) override { return _store->beginContactsScan(start_idx); }
+  bool readNextContactRecord(ContactInfo& dest) override { return _store->readNextContactRecord(dest); }
+  void endContactsScan() override { _store->endContactsScan(); }
+  void beginContactLookupBatch() override { _store->beginContactLookup(); }
+  void endContactLookupBatch() override { _store->endContactLookup(); }
+#ifdef LORAFISH_UI
+  uint8_t contactIndexTag(const ContactInfo& contact) const override;
+#endif
+#endif
+
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
   }
@@ -354,7 +372,11 @@ private:
   struct AckTableEntry {
     unsigned long msg_sent;
     uint32_t ack;
+#ifdef CONTACTS_FLASH_INDEX
+    uint8_t contact_pubkey[PUB_KEY_SIZE];   // identity, not a pointer -- re-looked-up in processAck()
+#else
     ContactInfo* contact;
+#endif
   };
   #define EXPECTED_ACK_TABLE_SIZE 8
   AckTableEntry expected_ack_table[EXPECTED_ACK_TABLE_SIZE]; // circular table

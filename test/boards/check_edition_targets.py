@@ -30,7 +30,8 @@ for alias,parent in water.items():
  assert a['build_flags']==p['build_flags']+['-D LORAGOTCHI_WATER_EDITION=1'],alias
  assert 'LORAGOTCHI_WATER_EDITION' not in ' '.join(p['build_flags']),parent
  assert '-D LORAFISH_UI=1' in a['build_flags'],alias
-assert {s[4:] for s in config if s.startswith('env:water_')}==set(water)
+# The Wio e-ink Water build is a full build of its own, not an alias of a DX target.
+assert {s[4:] for s in config if s.startswith('env:water_')}==set(water)|{'water_wio_tracker_l1_eink_ble'}
 a=config['env:RAK_4630_LoRaGotchi_DX_ble'];p=config['env:RAK_4631_LoRaGotchi_DX_ble']
 assert {k:v for k,v in a.items() if k!='extends'}=={k:v for k,v in p.items() if k!='extends'}
 assert a['board']=='rak4631'
