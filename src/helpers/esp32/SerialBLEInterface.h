@@ -1,85 +1,70 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
-#include <bluefruit.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
-#ifndef BLE_TX_POWER
-#define BLE_TX_POWER 4
-#endif
-
-// BLE_GARMIN (build flag): make the node usable from a Garmin Connect IQ watch.
-//   1. Just-works pairing: the watch cannot enter a PIN, so the UART
-//      characteristics require an encrypted but unauthenticated link. The
-//      static PIN is not set up at all (Bluefruit's setPIN() forces MITM on).
-//   2. Small-MTU slicing: the watch never raises the ATT MTU above 23, so
-//      frames travel as tagged 20-byte slices in both directions.
-//   3. Sensor advertising: the watch's own Connect IQ app never starts pairing
-//      with an unknown node, but its Sensors & Accessories menu does. The node
-//      also advertises as a heart-rate sensor so that menu lists it; the bond
-//      made there is then used by the watch app. No heart-rate data is sent.
-// nRF52 port of the ESP32 BLE_GARMIN transport (pelgraine/MeshCore, garmin
-// branch). The DFU service keeps its MITM permissions and is not changed.
-
-class SerialBLEInterface : public BaseSerialInterface {
-  BLEDfu bledfu;
-  BLEUart bleuart;
-#ifdef BLE_GARMIN
-  BLEService        hrmSvc;          // Heart Rate service (sensor disguise)
-  BLECharacteristic hrmChr;          // Heart Rate Measurement (notify)
-  BLECharacteristic bslChr;          // Body Sensor Location (read)
-  uint16_t _tx_off;                  // bytes of send_queue[0] already sent as slices (0 = none yet)
-  uint8_t  _rx_buf[MAX_FRAME_SIZE];  // reassembly buffer for sliced writes
-  int      _rx_len;                  // bytes collected so far (-1 = not mid-frame)
-#endif
+class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
+  BLEServer *pServer;
+  BLEService *pService;
+  BLECharacteristic * pTxCharacteristic;
+  bool deviceConnected;
+  bool oldDeviceConnected;
   bool _isEnabled;
-  bool _isDeviceConnected;
-  uint16_t _conn_handle;
-  unsigned long _last_health_check;
-  unsigned long _last_retry_attempt;
+  uint16_t last_conn_id;
+  uint32_t _pin_code;
+  unsigned long _last_write;
+  unsigned long adv_restart_time;
 
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
   };
 
-  #define FRAME_QUEUE_SIZE  12
-  
-  uint8_t send_queue_len;
+  #define FRAME_QUEUE_SIZE  4
+  StaticQueue_t recv_queue_state;
+  uint8_t recv_queue_storage[FRAME_QUEUE_SIZE * sizeof(Frame)];
+  QueueHandle_t recv_queue;
+  int send_queue_len;
   Frame send_queue[FRAME_QUEUE_SIZE];
-  
-  uint8_t recv_queue_len;
-  Frame recv_queue[FRAME_QUEUE_SIZE];
 
   void clearBuffers();
-  void shiftSendQueueLeft();
-  void shiftRecvQueueLeft();
-  bool isValidConnection(uint16_t handle, bool requireWaitingForSecurity = false) const;
-  bool isAdvertising() const;
-  static void onConnect(uint16_t connection_handle);
-  static void onDisconnect(uint16_t connection_handle, uint8_t reason);
-  static void onSecured(uint16_t connection_handle);
-  static bool onPairingPasskey(uint16_t connection_handle, uint8_t const passkey[6], bool match_request);
-  static void onPairingComplete(uint16_t connection_handle, uint8_t auth_status);
-  static void onBLEEvent(ble_evt_t* evt);
-  static void onBleUartRX(uint16_t conn_handle);
+
+protected:
+  // BLESecurityCallbacks methods
+  uint32_t onPassKeyRequest() override;
+  void onPassKeyNotify(uint32_t pass_key) override;
+  bool onConfirmPIN(uint32_t pass_key) override;
+  bool onSecurityRequest() override;
+  void onAuthenticationComplete(esp_ble_auth_cmpl_t cmpl) override;
+
+  // BLEServerCallbacks methods
+  void onConnect(BLEServer* pServer) override;
+  void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override;
+  void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override;
+  void onDisconnect(BLEServer* pServer) override;
+
+  // BLECharacteristicCallbacks methods
+  void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) override;
 
 public:
-#ifdef BLE_GARMIN
-  SerialBLEInterface()
-    : hrmSvc(UUID16_SVC_HEART_RATE),
-      hrmChr(UUID16_CHR_HEART_RATE_MEASUREMENT),
-      bslChr(UUID16_CHR_BODY_SENSOR_LOCATION) {
-    _tx_off = 0; _rx_len = -1;
-#else
   SerialBLEInterface() {
-#endif
+    pServer = NULL;
+    pService = NULL;
+    deviceConnected = false;
+    oldDeviceConnected = false;
+    adv_restart_time = 0;
     _isEnabled = false;
-    _isDeviceConnected = false;
-    _conn_handle = BLE_CONN_HANDLE_INVALID;
-    _last_health_check = 0;
-    _last_retry_attempt = 0;
+    _last_write = 0;
+    last_conn_id = 0;
+    recv_queue = xQueueCreateStatic(
+      FRAME_QUEUE_SIZE, sizeof(Frame), recv_queue_storage, &recv_queue_state
+    );
     send_queue_len = 0;
-    recv_queue_len = 0;
   }
 
   /**
@@ -90,11 +75,13 @@ public:
    */
   void begin(const char* prefix, char* name, uint32_t pin_code);
 
-  void disconnect();
+  // BaseSerialInterface methods
   void enable() override;
   void disable() override;
   bool isEnabled() const override { return _isEnabled; }
+
   bool isConnected() const override;
+
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[]) override;
