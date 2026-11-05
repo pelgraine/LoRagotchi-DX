@@ -31,6 +31,7 @@ class EinkCanvasDisplay : public DisplayDriver {
 
   GxEPD2_BW<EINK_DISPLAY_MODEL, EINK_DISPLAY_MODEL::HEIGHT> display;
   GFXcanvas1 canvas;
+  GFXcanvas1 fish_mask;   // dithered style only: which canvas pixels belong to a fish
   uint8_t _col_map[SCALED_W];
   uint8_t _row_map[SCALED_H];
   bool _init = false;
@@ -40,14 +41,19 @@ class EinkCanvasDisplay : public DisplayDriver {
   uint16_t _bkg = 1;
   uint32_t _last_hash = 0;
   uint32_t _last_full_ms = 0;
+  bool _dithered = false;
+  bool _mark_fish = false;
+  int _water_top = 0;
+  int _water_bottom = 0;
 
   uint32_t frameHash() const;
   void scaleToPanel();
+  bool ditheredPixel(int cx, int cy, int px, int py);
 
 public:
   EinkCanvasDisplay() : DisplayDriver(CANVAS_W, CANVAS_H),
       display(EINK_DISPLAY_MODEL(PIN_DISPLAY_CS, PIN_DISPLAY_DC, PIN_DISPLAY_RST, PIN_DISPLAY_BUSY)),
-      canvas(CANVAS_W, CANVAS_H) {}
+      canvas(CANVAS_W, CANVAS_H), fish_mask(CANVAS_W, CANVAS_H) {}
 
   bool begin();
 
@@ -67,4 +73,18 @@ public:
   void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;
+
+  // The two looks offered on this panel: plain mono, or dithered mono with grey fish
+  // bodies and water that darkens towards the tank floor.
+  void setDithered(bool on) { _dithered = on; }
+  void setFishShading(bool on) { _mark_fish = on; }
+  void setWaterRows(int top, int bottom) { _water_top = top; _water_bottom = bottom; }
+};
+
+// Everything drawn while one of these exists counts as part of a fish.
+class EinkFishShading {
+  EinkCanvasDisplay& _display;
+public:
+  explicit EinkFishShading(EinkCanvasDisplay& display) : _display(display) { _display.setFishShading(true); }
+  ~EinkFishShading() { _display.setFishShading(false); }
 };

@@ -415,10 +415,18 @@ static const LoRaFishThemePalette loRaFishThemes[] = {
 };
 static constexpr uint8_t LORAFISH_COLOR_THEME_COUNT = sizeof(loRaFishThemes) / sizeof(loRaFishThemes[0]);
 static const char* loRaFishColorNames[] = {"Coral", "Tangerine", "Gold", "Mint", "Lagoon", "Orchid", "Mono"};
+#ifdef LORAFISH_EINK_CANVAS
+// E-ink has no OLED colour to report: these are the two looks this panel offers.
+static const char* loRaFishMonoDisplayColourNames[] = {"Mono", "Dithered mono"};
+static constexpr uint8_t LORAFISH_MONO_DISPLAY_COLOUR_COUNT = 2;
+static constexpr uint16_t loRaFishMonoDisplayTints[] = {0xFFFF, 0xFFFF};
+static constexpr uint8_t LORAFISH_EINK_DITHERED = 1;
+#else
 static const char* loRaFishMonoDisplayColourNames[] = {"Blue OLED", "White OLED", "Yellow/Blue OLED"};
 static constexpr uint8_t LORAFISH_MONO_DISPLAY_COLOUR_COUNT = 3;
 // Blue and yellow/blue SSD1306 panels emit cyan where the fish lives (bottom 3/4).
 static constexpr uint16_t loRaFishMonoDisplayTints[] = {0x03B0, 0xFFFF, 0x03B0};
+#endif
 static uint16_t loRaFishMonoDisplayTint() {
   return loRaFishMonoDisplayTints[min(loRaFishMonoDisplayColour,
                                       (uint8_t)(LORAFISH_MONO_DISPLAY_COLOUR_COUNT - 1))];
@@ -482,7 +490,11 @@ static void loRaFishSyncDXAppearance() {
   loragotchiDXLocalScalesColorIndex=appearance.scales;
   loragotchiDXLocalEyesColorIndex=appearance.eyes;
   loragotchiDXLocalSpecies=loRaFishSpecies;
+#ifdef LORAFISH_EINK_CANVAS
+  loragotchiDXLocalMonoPanel=1;  // visits report a white panel in either look
+#else
   loragotchiDXLocalMonoPanel=loRaFishMonoDisplayColour;
+#endif
   loragotchiDXLocalMonoPixelTint=loRaFishMonoDisplayTint();
 }
 #endif
@@ -662,7 +674,12 @@ static void selectLoRaFishValue() {
     case LoRaFishSetting::WakeSound: loRaFishWakeSound = value; break;
     case LoRaFishSetting::SleepSound: loRaFishSleepSound = value; break;
     case LoRaFishSetting::MessageSound: loRaFishMessageSound = value; break;
-    case LoRaFishSetting::MonoDisplayColour: loRaFishMonoDisplayColour = value; loRaFishMonoDisplayColourKnown = true; break;
+    case LoRaFishSetting::MonoDisplayColour:
+      loRaFishMonoDisplayColour = value; loRaFishMonoDisplayColourKnown = true;
+#ifdef LORAFISH_EINK_CANVAS
+      ::display.setDithered(value == LORAFISH_EINK_DITHERED);
+#endif
+      break;
   }
 #ifdef LORAFISH_UI
   loRaFishSyncDXAppearance();
@@ -2001,6 +2018,9 @@ static void drawCardputerTankDepth(DisplayDriver& d) {
 
 static void drawFishSpriteForStage(DisplayDriver& d,int x,int y,bool right,uint8_t stage,
                                   const LoRaFishAppearance& appearance,uint16_t species=0) {
+#ifdef LORAFISH_EINK_CANVAS
+  EinkFishShading fishShading(::display);
+#endif
 #if LORAGOTCHI_SPECIES_EDITION
   species=LoRaFishSpecies::renderId(species);
 #if !LORAGOTCHI_AIR_EDITION
@@ -2238,6 +2258,9 @@ static void drawLoRaFishTankStatusBar(DisplayDriver& display,const char* stage,U
 
 static void drawLoRaFishEgg(DisplayDriver& display,UITask* task) {
   const int w=display.width(), h=display.height();
+#ifdef LORAFISH_EINK_CANVAS
+  ::display.setWaterRows(16,h-15);
+#endif
   char tb[8],db[24]; loRaFishClock(tb,sizeof(tb),db,sizeof(db));
   drawLoRaFishHeader(display,loRaFishDisplayName(),tb);
   drawLoRaFishTankBattery(display,task,tb);
@@ -2581,7 +2604,13 @@ static void drawLoRaFishDisplayMenu(DisplayDriver& display) {
   drawLoRaFishHeader(display, "DISPLAY", "");
   display.setColor(UIColor::primary_txt);
   for (uint8_t row = 0; row < 4 && first + row < count; ++row) {
+#ifdef LORAFISH_EINK_CANVAS
+    // No brightness on e-ink, and Game rendering only changes the OLED frame rate.
+    static const uint8_t einkRows[] = {0, 2, 3, 5};
+    const uint8_t option = einkRows[row];
+#else
     const uint8_t option = first + row;
+#endif
     display.setCursor(3, 18 + row*9);
     display.print(option == loRaFishDisplayOption ? "> " : "  ");
     display.print(loRaFishColorDisplay ? colorLabels[option] : monoLabels[option]);
@@ -2598,8 +2627,15 @@ static void drawLoRaFishPetSetup(DisplayDriver& display) {
   const char* rows[]={LoRaFishSpecies::label(loRaFishSpecies),"Mystery colours",
       loRaFishColorDisplay ? "Choose colours" : "Keep colours","Start pet"};
   display.setColor(UIColor::primary_txt);
+#ifdef LORAFISH_EINK_CANVAS
+  // Colours don't show on this panel, so setup is just the species and Start pet.
+  static const uint8_t einkRows[]={0,3};
+  for (uint8_t line=0;line<2;++line) { const uint8_t i=einkRows[line]; display.setCursor(3,18+line*9);
+    display.print(i==loRaFishPetSetupField ? "> " : "  "); display.print(rows[i]); }
+#else
   for (uint8_t i=0;i<4;++i) { display.setCursor(3,18+i*9);
     display.print(i==loRaFishPetSetupField ? "> " : "  "); display.print(rows[i]); }
+#endif
   drawLoRaFishMenuHint(display);
 }
 static void drawLoRaFishColorMenu(DisplayDriver& display) {
@@ -2642,7 +2678,12 @@ static void drawLoRaFishTimeoutMenu(DisplayDriver& display) {
   drawLoRaFishHeader(display,"TIMEOUT","");
 
   display.setColor(UIColor::primary_txt);
-  for (uint8_t row=0; row<3; row++) {
+#ifdef LORAFISH_EINK_CANVAS
+  const uint8_t rowCount=2;  // no Dim after on e-ink
+#else
+  const uint8_t rowCount=3;
+#endif
+  for (uint8_t row=0; row<rowCount; row++) {
     const uint8_t setting=row==0 ? loRaFishTimeoutAwakeSetting
                                  : row==1 ? loRaFishTimeoutAsleepSetting : loRaFishAlwaysOnDimSetting;
     const char* label=row==0 ? "Awake" : row==1 ? "Asleep" : "Dim after";
@@ -3094,6 +3135,9 @@ static void drawLoRaFishAirHabitat(DisplayDriver& display) {
 
 static void drawLoRaFishAquarium(DisplayDriver& display, UITask* task) {
   const int w=display.width(), h=display.height();
+#ifdef LORAFISH_EINK_CANVAS
+  ::display.setWaterRows(16,h-15);
+#endif
   char tb[8], db[24];
   loRaFishClock(tb,sizeof(tb),db,sizeof(db));
 #if LORAGOTCHI_AIR_EDITION
@@ -3345,6 +3389,9 @@ static bool loRaFishIsSleeping() {
 
 static void drawLoRaFishSleeping(DisplayDriver& display, UITask* task) {
   const int w=display.width(), h=display.height();
+#ifdef LORAFISH_EINK_CANVAS
+  ::display.setWaterRows(16,h-15);
+#endif
   char tb[8], db[24];
   loRaFishClock(tb,sizeof(tb),db,sizeof(db));
 #if LORAGOTCHI_AIR_EDITION
@@ -3415,9 +3462,15 @@ static void drawLoRaFishMonoDisplayNotice(DisplayDriver& display) {
   const int x = display.width() / 2;
   drawLoRaFishHeader(display, "MONO SCREEN COLOUR", "");
   display.setColor(UIColor::primary_txt);
+#ifdef LORAFISH_EINK_CANVAS
+  display.drawTextCentered(x, 18, "Mono is the default.");
+  display.drawTextCentered(x, 28, "Try dithered mono in");
+  display.drawTextCentered(x, 38, "Options > Display.");
+#else
   display.drawTextCentered(x, 18, "Choose your OLED panel");
   display.drawTextCentered(x, 28, "so colour peers can");
   display.drawTextCentered(x, 38, "render your visitor.");
+#endif
   display.setColor(UIColor::secondary_txt);
   display.drawTextCentered(x, 56, "CLICK TO DISMISS");
 }
@@ -4102,14 +4155,26 @@ public:
 #endif
     } else if (loRaFishPage == 12) {
       loRaFishDisplayOption = move(loRaFishDisplayOption, loRaFishDisplayOptionCount());
+#ifdef LORAFISH_EINK_CANVAS
+      if (loRaFishDisplayOption == 1 || loRaFishDisplayOption == 4)  // hidden rows
+        loRaFishDisplayOption = move(loRaFishDisplayOption, loRaFishDisplayOptionCount());
+#endif
     } else if (loRaFishPage == LORAFISH_PET_SETUP_PAGE) {
+#ifdef LORAFISH_EINK_CANVAS
+      loRaFishPetSetupField = loRaFishPetSetupField ? 0 : 3;  // species and Start pet only
+#else
       loRaFishPetSetupField = move(loRaFishPetSetupField,4);
+#endif
     } else if (loRaFishPage == 9) {
       loRaFishColorField = move(loRaFishColorField, (loRaFishNeedsAppearanceSetup || loRaFishNeedsPetSetup) ? 4 : 3);
     } else if (loRaFishPage == 10) {
       loRaFishTimeField = move(loRaFishTimeField, 3);
     } else if (loRaFishPage == 11) {
+#ifdef LORAFISH_EINK_CANVAS
+      loRaFishTimeoutField = move(loRaFishTimeoutField, 2);
+#else
       loRaFishTimeoutField = move(loRaFishTimeoutField, 3);
+#endif
     } else if (loRaFishPage == 14) {
       loRaFishSoundField = move(loRaFishSoundField, 4);
     } else if (loRaFishPage == 16) {
@@ -4345,6 +4410,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   }
   applyLoRaFishTheme();
   loRaFishMonoDisplayNotice = !loRaFishColorDisplay && !loRaFishMonoDisplayColourKnown;
+#ifdef LORAFISH_EINK_CANVAS
+  ::display.setDithered(loRaFishMonoDisplayColour == LORAFISH_EINK_DITHERED);
+#endif
 #ifdef PIN_BUZZER
   buzzer.setVolume(loRaFishBuzzerVolume);
   buzzer.startup();
